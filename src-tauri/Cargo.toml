@@ -15,8 +15,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build.workspace = true
 
 [dependencies]
+procnote-core = { path = "../crates/procnote-core" }
 serde_json.workspace = true
 serde.workspace = true
 log.workspace = true
+uuid.workspace = true
 tauri.workspace = true
 tauri-plugin-log.workspace = true
