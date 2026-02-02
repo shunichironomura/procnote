@@ -22,3 +22,4 @@ log.workspace = true
 uuid.workspace = true
 tauri.workspace = true
 tauri-plugin-log.workspace = true
+clap.workspace = true

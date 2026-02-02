@@ -2,6 +2,7 @@ mod commands;
 mod state;
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use tauri::Manager;
@@ -11,9 +12,9 @@ use commands::template::{list_templates, load_template};
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
+pub fn run(procedures_dir: Option<PathBuf>, executions_dir: Option<PathBuf>) {
     tauri::Builder::default()
-        .setup(|app| {
+        .setup(move |app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -22,13 +23,14 @@ pub fn run() {
                 )?;
             }
 
-            // Resolve data directories relative to the app's resource dir.
-            let resource_dir = app
+            // Use CLI-provided paths, or fall back to the app's resource directory.
+            let default_base = app
                 .path()
                 .resource_dir()
                 .expect("failed to resolve resource dir");
-            let procedures_dir = resource_dir.join("procedures");
-            let executions_dir = resource_dir.join(".executions");
+
+            let procedures_dir = procedures_dir.unwrap_or_else(|| default_base.join("procedures"));
+            let executions_dir = executions_dir.unwrap_or_else(|| default_base.join(".executions"));
 
             // Ensure directories exist.
             let _ = std::fs::create_dir_all(&procedures_dir);
