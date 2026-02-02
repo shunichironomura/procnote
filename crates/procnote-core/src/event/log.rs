@@ -214,6 +214,8 @@ mod tests {
                 heading: "New Step".to_string(),
                 description: Some("Added during execution".to_string()),
                 after_step: Some("Preconditions".to_string()),
+                checkboxes: vec![],
+                inputs: vec![],
             },
             Event::StepStarted {
                 at: now,

@@ -4,7 +4,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::event::types::{CompletionStatus, Event, ExecutionId};
-use crate::template::types::ProcedureTemplate;
+use crate::template::types::{InputDefinition, ProcedureTemplate, StepContent};
 
 /// Errors that can occur during execution state transitions.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -52,7 +52,11 @@ pub enum StepStatus {
 pub struct StepState {
     pub heading: String,
     pub status: StepStatus,
-    pub checkboxes: HashMap<String, bool>,
+    /// Checkbox text -> checked state. Insertion order preserved by step_order.
+    pub checkboxes: Vec<(String, bool)>,
+    /// Input definitions for this step (from template or StepAdded event).
+    pub input_definitions: Vec<InputDefinition>,
+    /// Recorded input values keyed by label.
     pub inputs: HashMap<String, RecordedInput>,
     pub notes: Vec<String>,
 }
@@ -152,6 +156,8 @@ impl ExecutionState {
             Event::StepAdded {
                 heading,
                 after_step,
+                checkboxes,
+                inputs,
                 ..
             } => {
                 self.require_active()?;
@@ -161,7 +167,8 @@ impl ExecutionState {
                 let step_state = StepState {
                     heading: heading.clone(),
                     status: StepStatus::Pending,
-                    checkboxes: HashMap::new(),
+                    checkboxes: checkboxes.iter().map(|t| (t.clone(), false)).collect(),
+                    input_definitions: inputs.clone(),
                     inputs: HashMap::new(),
                     notes: Vec::new(),
                 };
@@ -224,7 +231,12 @@ impl ExecutionState {
             } => {
                 self.require_active()?;
                 let step = self.get_step_mut(step_heading)?;
-                step.checkboxes.insert(text.clone(), *checked);
+                if let Some(entry) = step.checkboxes.iter_mut().find(|(t, _)| t == text) {
+                    entry.1 = *checked;
+                } else {
+                    // Checkbox not from template — add dynamically.
+                    step.checkboxes.push((text.clone(), *checked));
+                }
             }
             Event::InputRecorded {
                 step_heading,
@@ -313,14 +325,29 @@ impl ExecutionState {
         self.apply(&started)?;
         events.push(started);
 
-        // Add steps from the template.
+        // Add steps from the template, including checkboxes and input definitions.
         for step in &template.steps {
+            let mut checkboxes = Vec::new();
+            let mut input_defs = Vec::new();
+            for content in &step.content {
+                match content {
+                    StepContent::Checkbox { text, .. } => {
+                        checkboxes.push(text.clone());
+                    }
+                    StepContent::InputBlock { inputs } => {
+                        input_defs.extend(inputs.iter().cloned());
+                    }
+                    StepContent::Prose { .. } => {}
+                }
+            }
             let step_added = Event::StepAdded {
                 at: now,
                 execution_id,
                 heading: step.heading.clone(),
                 description: None,
                 after_step: None,
+                checkboxes,
+                inputs: input_defs,
             };
             self.apply(&step_added)?;
             events.push(step_added);
@@ -343,6 +370,8 @@ impl ExecutionState {
             heading: heading.to_string(),
             description: description.map(|s| s.to_string()),
             after_step: after_step.map(|s| s.to_string()),
+            checkboxes: Vec::new(),
+            inputs: Vec::new(),
         };
         self.apply(&event)?;
         Ok(event)
@@ -624,7 +653,12 @@ mod tests {
             StepStatus::Completed
         );
         assert_eq!(state.steps["Postconditions"].status, StepStatus::Skipped);
-        assert!(state.steps["Preconditions"].checkboxes["Check 1"]);
+        assert!(
+            state.steps["Preconditions"]
+                .checkboxes
+                .iter()
+                .any(|(t, c)| t == "Check 1" && *c)
+        );
         assert_eq!(
             state.steps["Step 1: Power On"].inputs["Current"].value,
             "120"
@@ -638,7 +672,12 @@ mod tests {
             ExecutionStatus::Finished(CompletionStatus::Pass)
         );
         assert_eq!(replayed.step_order.len(), 3);
-        assert!(replayed.steps["Preconditions"].checkboxes["Check 1"]);
+        assert!(
+            replayed.steps["Preconditions"]
+                .checkboxes
+                .iter()
+                .any(|(t, c)| t == "Check 1" && *c)
+        );
     }
 
     #[test]

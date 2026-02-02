@@ -6,6 +6,7 @@ use procnote_core::event::types::{CompletionStatus, Event, ExecutionId};
 use procnote_core::event::{append_event, read_events};
 use procnote_core::execution::{ExecutionState, StepStatus};
 use procnote_core::template::parse_template;
+use procnote_core::template::types::InputDefinition;
 
 /// Serializable execution state summary for the frontend.
 #[derive(Debug, Serialize)]
@@ -23,6 +24,7 @@ pub struct StepSummary {
     pub heading: String,
     pub status: String,
     pub checkboxes: Vec<CheckboxState>,
+    pub input_definitions: Vec<InputDefinition>,
     pub inputs: Vec<InputState>,
     pub notes: Vec<String>,
 }
@@ -88,6 +90,7 @@ fn summarize(state: &ExecutionState) -> ExecutionSummary {
                     heading: step.heading.clone(),
                     status: step_status_string(&step.status),
                     checkboxes,
+                    input_definitions: step.input_definitions.clone(),
                     inputs,
                     notes: step.notes.clone(),
                 }

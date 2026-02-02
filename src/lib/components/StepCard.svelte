@@ -1,17 +1,15 @@
 <script lang="ts">
-	import type { StepSummary, Step } from '$lib/types';
+	import type { StepSummary } from '$lib/types';
 	import CheckboxItem from './CheckboxItem.svelte';
 	import InputField from './InputField.svelte';
 	import NoteEditor from './NoteEditor.svelte';
 
 	let {
 		stepSummary,
-		templateStep,
 		executionActive = false,
 		onaction
 	}: {
 		stepSummary: StepSummary;
-		templateStep?: Step;
 		executionActive?: boolean;
 		onaction: (action: Record<string, unknown>) => void;
 	} = $props();
@@ -51,22 +49,6 @@
 	function addNote(text: string) {
 		onaction({ action: 'add_note', text, step_heading: stepSummary.heading });
 	}
-
-	// Get the input definitions from the template step, if available.
-	let inputDefinitions = $derived.by(() => {
-		if (!templateStep) return [];
-		return templateStep.content
-			.filter((c): c is { type: 'InputBlock'; inputs: import('$lib/types').InputDefinition[] } => c.type === 'InputBlock')
-			.flatMap((c) => c.inputs);
-	});
-
-	// Get prose content from template step.
-	let proseBlocks = $derived.by(() => {
-		if (!templateStep) return [];
-		return templateStep.content
-			.filter((c): c is { type: 'Prose'; text: string } => c.type === 'Prose')
-			.map((c) => c.text);
-	});
 </script>
 
 <div
@@ -82,14 +64,6 @@
 		<span class="step-status-badge">{stepSummary.status}</span>
 	</div>
 
-	{#if proseBlocks.length > 0}
-		<div class="step-prose">
-			{#each proseBlocks as prose}
-				<p>{prose}</p>
-			{/each}
-		</div>
-	{/if}
-
 	{#if stepSummary.checkboxes.length > 0}
 		<div class="step-section">
 			{#each stepSummary.checkboxes as checkbox}
@@ -102,9 +76,9 @@
 		</div>
 	{/if}
 
-	{#if inputDefinitions.length > 0}
+	{#if stepSummary.input_definitions.length > 0}
 		<div class="step-section">
-			{#each inputDefinitions as defn}
+			{#each stepSummary.input_definitions as defn}
 				<InputField
 					definition={defn}
 					recorded={stepSummary.inputs.find((i) => i.label === defn.label)}
@@ -236,13 +210,6 @@
 
 	.skipped .step-status-badge {
 		color: #e65100;
-	}
-
-	.step-prose p {
-		margin: 0 0 8px;
-		font-size: 13px;
-		color: #555;
-		line-height: 1.6;
 	}
 
 	.step-section {

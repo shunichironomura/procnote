@@ -66,6 +66,7 @@ export interface StepSummary {
 	heading: string;
 	status: string;
 	checkboxes: CheckboxState[];
+	input_definitions: InputDefinition[];
 	inputs: InputState[];
 	notes: string[];
 }

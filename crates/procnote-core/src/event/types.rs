@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::template::types::InputDefinition;
+
 /// Unique identifier for an execution.
 pub type ExecutionId = Uuid;
 
@@ -50,6 +52,12 @@ pub enum Event {
         /// Insert after this step heading. `None` means append at end.
         #[serde(skip_serializing_if = "Option::is_none")]
         after_step: Option<String>,
+        /// Checkbox texts to initialize in this step (from template).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        checkboxes: Vec<String>,
+        /// Input definitions for this step (from template).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        inputs: Vec<InputDefinition>,
     },
     StepStarted {
         at: DateTime<Utc>,
