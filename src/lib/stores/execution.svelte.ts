@@ -1,5 +1,5 @@
-import type { ExecutionSummary, ExecutionAction } from "$lib/types";
 import * as api from "$lib/api/commands";
+import type { ExecutionAction, ExecutionSummary } from "$lib/types";
 
 class ExecutionStore {
   summary: ExecutionSummary | null = $state(null);

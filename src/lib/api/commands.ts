@@ -1,9 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
-  TemplateSummary,
-  ProcedureTemplate,
-  ExecutionSummary,
   ExecutionAction,
+  ExecutionSummary,
+  ProcedureTemplate,
+  TemplateSummary,
 } from "$lib/types";
 
 export async function listTemplates(): Promise<TemplateSummary[]> {
