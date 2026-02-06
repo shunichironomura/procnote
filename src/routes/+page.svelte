@@ -109,6 +109,7 @@
 			<p>Procedure: <strong>{startingTemplate.title}</strong></p>
 			<label class="field">
 				<span class="field-label">Operator Name</span>
+				<!-- svelte-ignore a11y_autofocus -->
 				<input
 					type="text"
 					bind:value={operatorName}

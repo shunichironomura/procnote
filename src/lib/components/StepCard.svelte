@@ -147,6 +147,7 @@
         <div class="skip-dialog">
             <label class="field">
                 <span class="field-label">Reason for skipping</span>
+                <!-- svelte-ignore a11y_autofocus -->
                 <input
                     type="text"
                     bind:value={skipReason}

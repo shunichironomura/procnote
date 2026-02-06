@@ -35,6 +35,7 @@
         <p class="hint">Add a new step to the procedure execution.</p>
         <label class="field">
             <span class="field-label">Step Heading</span>
+            <!-- svelte-ignore a11y_autofocus -->
             <input
                 type="text"
                 bind:value={heading}

@@ -13,7 +13,10 @@
         onrecord: (label: string, value: string, unit?: string) => void;
     } = $props();
 
-    let inputValue = $state(recorded?.value ?? "");
+    let inputValue = $state("");
+    $effect(() => {
+        inputValue = recorded?.value ?? "";
+    });
 
     function submit() {
         if (!inputValue.trim()) return;
@@ -29,11 +32,12 @@
     });
 
     let isRecorded = $derived(!!recorded);
+    let inputId = $derived(`input-${definition.label.replace(/\s+/g, "-").toLowerCase()}`);
 </script>
 
 <div class="input-field" class:recorded={isRecorded}>
     <div class="input-header">
-        <label class="input-label">{definition.label}</label>
+        <label class="input-label" for={inputId}>{definition.label}</label>
         {#if expectedText}
             <span class="expected">{expectedText}</span>
         {/if}
@@ -41,6 +45,7 @@
     <div class="input-row">
         {#if definition.input_type === "selection"}
             <select
+                id={inputId}
                 bind:value={inputValue}
                 disabled={disabled || isRecorded}
                 onchange={submit}
@@ -52,6 +57,7 @@
             </select>
         {:else}
             <input
+                id={inputId}
                 type={definition.input_type === "measurement"
                     ? "number"
                     : "text"}
