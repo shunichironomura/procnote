@@ -21,6 +21,7 @@ pub struct ExecutionSummary {
 #[derive(Debug, Serialize)]
 pub struct StepSummary {
     pub heading: String,
+    pub description: Option<String>,
     pub status: String,
     pub checkboxes: Vec<CheckboxState>,
     pub input_definitions: Vec<InputDefinition>,
@@ -87,6 +88,7 @@ fn summarize(state: &ExecutionState) -> ExecutionSummary {
                     .collect();
                 StepSummary {
                     heading: step.heading.clone(),
+                    description: step.description.clone(),
                     status: step_status_string(&step.status),
                     checkboxes,
                     input_definitions: step.input_definitions.clone(),

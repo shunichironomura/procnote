@@ -51,6 +51,7 @@ pub enum StepStatus {
 #[derive(Debug, Clone)]
 pub struct StepState {
     pub heading: String,
+    pub description: Option<String>,
     pub status: StepStatus,
     /// Checkbox text -> checked state. Insertion order preserved by step_order.
     pub checkboxes: Vec<(String, bool)>,
@@ -143,6 +144,7 @@ impl ExecutionState {
             }
             Event::StepAdded {
                 heading,
+                description,
                 after_step,
                 checkboxes,
                 inputs,
@@ -154,6 +156,7 @@ impl ExecutionState {
                 }
                 let step_state = StepState {
                     heading: heading.clone(),
+                    description: description.clone(),
                     status: StepStatus::Pending,
                     checkboxes: checkboxes.iter().map(|t| (t.clone(), false)).collect(),
                     input_definitions: inputs.clone(),
@@ -302,6 +305,7 @@ impl ExecutionState {
         for step in &template.steps {
             let mut checkboxes = Vec::new();
             let mut input_defs = Vec::new();
+            let mut prose_parts = Vec::new();
             for content in &step.content {
                 match content {
                     StepContent::Checkbox { text, .. } => {
@@ -310,14 +314,21 @@ impl ExecutionState {
                     StepContent::InputBlock { inputs } => {
                         input_defs.extend(inputs.iter().cloned());
                     }
-                    StepContent::Prose { .. } => {}
+                    StepContent::Prose { text } => {
+                        prose_parts.push(text.clone());
+                    }
                 }
             }
+            let description = if prose_parts.is_empty() {
+                None
+            } else {
+                Some(prose_parts.join("\n\n"))
+            };
             let step_added = Event::StepAdded {
                 at: now,
                 execution_id,
                 heading: step.heading.clone(),
-                description: None,
+                description,
                 after_step: None,
                 checkboxes,
                 inputs: input_defs,
