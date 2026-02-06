@@ -188,10 +188,6 @@ pub enum ExecutionAction {
         description: Option<String>,
         after_step: Option<String>,
     },
-    RecordDeviation {
-        description: String,
-        justification: String,
-    },
     AddAttachment {
         filename: String,
         path: String,
@@ -261,13 +257,6 @@ pub fn record_action(
         } => active
             .state
             .add_step(&heading, description.as_deref(), after_step.as_deref())
-            .map_err(|e| e.to_string())?,
-        ExecutionAction::RecordDeviation {
-            description,
-            justification,
-        } => active
-            .state
-            .record_deviation(&description, &justification)
             .map_err(|e| e.to_string())?,
         ExecutionAction::AddAttachment {
             filename,

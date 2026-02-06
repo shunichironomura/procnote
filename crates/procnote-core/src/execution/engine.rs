@@ -80,16 +80,8 @@ pub struct ExecutionState {
     /// Ordered step headings (preserves insertion order).
     pub step_order: Vec<String>,
     pub steps: HashMap<String, StepState>,
-    pub deviations: Vec<Deviation>,
     pub attachments: Vec<Attachment>,
     pub global_notes: Vec<String>,
-}
-
-/// A recorded deviation.
-#[derive(Debug, Clone)]
-pub struct Deviation {
-    pub description: String,
-    pub justification: String,
 }
 
 /// A recorded attachment.
@@ -111,7 +103,6 @@ impl ExecutionState {
             status: ExecutionStatus::Pending,
             step_order: Vec::new(),
             steps: HashMap::new(),
-            deviations: Vec::new(),
             attachments: Vec::new(),
             global_notes: Vec::new(),
         }
@@ -270,16 +261,9 @@ impl ExecutionState {
                     }
                 }
             }
-            Event::DeviationRecorded {
-                description,
-                justification,
-                ..
-            } => {
-                self.require_active()?;
-                self.deviations.push(Deviation {
-                    description: description.clone(),
-                    justification: justification.clone(),
-                });
+            Event::DeviationRecorded { .. } => {
+                // Legacy event: deviation feature has been removed.
+                // Accept the event during replay for backward compatibility but do nothing.
             }
             Event::AttachmentAdded {
                 filename,
@@ -466,23 +450,6 @@ impl ExecutionState {
             execution_id: self.require_execution_id()?,
             text: text.to_string(),
             step_heading: step_heading.map(|s| s.to_string()),
-        };
-        self.apply(&event)?;
-        Ok(event)
-    }
-
-    /// Record a deviation.
-    pub fn record_deviation(
-        &mut self,
-        description: &str,
-        justification: &str,
-    ) -> Result<Event, ExecutionError> {
-        self.require_active()?;
-        let event = Event::DeviationRecorded {
-            at: Utc::now(),
-            execution_id: self.require_execution_id()?,
-            description: description.to_string(),
-            justification: justification.to_string(),
         };
         self.apply(&event)?;
         Ok(event)
@@ -771,20 +738,15 @@ mod tests {
     }
 
     #[test]
-    fn test_deviation_and_attachment() {
+    fn test_attachment() {
         let template = sample_template();
         let mut state = ExecutionState::new();
         state.start(&template, "Nomura").unwrap();
 
         state
-            .record_deviation("Voltage was 4.9V", "Within tolerance")
-            .unwrap();
-        state
             .add_attachment("photo.jpg", "attachments/photo.jpg", "image/jpeg")
             .unwrap();
 
-        assert_eq!(state.deviations.len(), 1);
-        assert_eq!(state.deviations[0].description, "Voltage was 4.9V");
         assert_eq!(state.attachments.len(), 1);
         assert_eq!(state.attachments[0].filename, "photo.jpg");
     }

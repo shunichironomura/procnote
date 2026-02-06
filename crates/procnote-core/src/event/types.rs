@@ -101,7 +101,7 @@ pub enum Event {
         step_heading: Option<String>,
     },
 
-    // -- Deviation --
+    // -- Deviation (deprecated: kept for backward-compatible event replay) --
     DeviationRecorded {
         at: DateTime<Utc>,
         execution_id: ExecutionId,

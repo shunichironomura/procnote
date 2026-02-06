@@ -108,7 +108,6 @@ export type ExecutionAction =
       description?: string;
       after_step?: string;
     }
-  | { action: "record_deviation"; description: string; justification: string }
   | {
       action: "add_attachment";
       filename: string;
