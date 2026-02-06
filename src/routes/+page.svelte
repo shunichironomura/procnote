@@ -12,9 +12,6 @@
 	let loadingExecutions = $state(true);
 	let error: string | null = $state(null);
 
-	let operatorName = $state('');
-	let startingTemplate: TemplateSummary | null = $state(null);
-
 	onMount(async () => {
 		try {
 			templates = await api.listTemplates();
@@ -34,28 +31,10 @@
 	});
 
 	async function handleStart(template: TemplateSummary) {
-		if (!operatorName.trim()) {
-			startingTemplate = template;
-			return;
-		}
-		await startExecution(template);
-	}
-
-	async function confirmStart() {
-		if (!startingTemplate || !operatorName.trim()) return;
-		await startExecution(startingTemplate);
-		startingTemplate = null;
-	}
-
-	async function startExecution(template: TemplateSummary) {
-		await executionStore.start(template.path, operatorName.trim());
+		await executionStore.start(template.path);
 		if (executionStore.summary) {
 			goto(`/execution/${executionStore.summary.execution_id}`);
 		}
-	}
-
-	function cancelStart() {
-		startingTemplate = null;
 	}
 
 	function resumeExecution(exec: ExecutionSummary) {
@@ -91,7 +70,6 @@
 						</div>
 						<div class="exec-meta">
 							<span>v{exec.procedure_version}</span>
-							<span>Operator: {exec.operator}</span>
 						</div>
 					</button>
 				{/each}
@@ -99,37 +77,6 @@
 		</section>
 	{/if}
 </div>
-
-{#if startingTemplate}
-	<div class="modal-backdrop" role="presentation" onclick={cancelStart}>
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="modal" onclick={(e) => e.stopPropagation()}>
-			<h3>Start Execution</h3>
-			<p>Procedure: <strong>{startingTemplate.title}</strong></p>
-			<label class="field">
-				<span class="field-label">Operator Name</span>
-				<!-- svelte-ignore a11y_autofocus -->
-				<input
-					type="text"
-					bind:value={operatorName}
-					placeholder="Enter your name"
-					autofocus
-					onkeydown={(e) => { if (e.key === 'Enter') confirmStart(); }}
-				/>
-			</label>
-			{#if executionStore.error}
-				<p class="error">{executionStore.error}</p>
-			{/if}
-			<div class="modal-actions">
-				<button class="btn btn-secondary" onclick={cancelStart}>Cancel</button>
-				<button class="btn btn-primary" onclick={confirmStart} disabled={!operatorName.trim() || executionStore.loading}>
-					{executionStore.loading ? 'Starting...' : 'Start'}
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
 
 <style>
 	.home {
@@ -223,104 +170,5 @@
 		gap: 16px;
 		font-size: 12px;
 		color: #888;
-	}
-
-	/* Modal */
-	.modal-backdrop {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.4);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 100;
-	}
-
-	.modal {
-		background: #fff;
-		border-radius: 8px;
-		padding: 24px;
-		min-width: 360px;
-		max-width: 480px;
-		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-	}
-
-	.modal h3 {
-		margin: 0 0 12px;
-		font-size: 16px;
-	}
-
-	.modal p {
-		margin: 0 0 16px;
-		font-size: 13px;
-		color: #555;
-	}
-
-	.field {
-		display: block;
-		margin-bottom: 16px;
-	}
-
-	.field-label {
-		display: block;
-		font-size: 12px;
-		font-weight: 600;
-		margin-bottom: 4px;
-		color: #555;
-	}
-
-	.field input {
-		width: 100%;
-		padding: 8px 12px;
-		border: 1px solid #ccc;
-		border-radius: 4px;
-		font: inherit;
-		font-size: 14px;
-	}
-
-	.field input:focus {
-		outline: none;
-		border-color: #1a1a2e;
-		box-shadow: 0 0 0 2px rgba(26, 26, 46, 0.15);
-	}
-
-	.modal-actions {
-		display: flex;
-		justify-content: flex-end;
-		gap: 8px;
-	}
-
-	.btn {
-		padding: 8px 16px;
-		border-radius: 4px;
-		font: inherit;
-		font-size: 13px;
-		font-weight: 600;
-		cursor: pointer;
-		border: 1px solid transparent;
-	}
-
-	.btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.btn-primary {
-		background: #1a1a2e;
-		color: #fff;
-	}
-
-	.btn-primary:hover:not(:disabled) {
-		background: #16213e;
-	}
-
-	.btn-secondary {
-		background: #fff;
-		color: #333;
-		border-color: #ccc;
-	}
-
-	.btn-secondary:hover {
-		background: #f5f5f5;
 	}
 </style>

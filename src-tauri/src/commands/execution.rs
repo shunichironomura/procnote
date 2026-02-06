@@ -14,7 +14,6 @@ pub struct ExecutionSummary {
     pub execution_id: ExecutionId,
     pub procedure_id: String,
     pub procedure_version: String,
-    pub operator: String,
     pub status: String,
     pub steps: Vec<StepSummary>,
 }
@@ -102,7 +101,6 @@ fn summarize(state: &ExecutionState) -> ExecutionSummary {
         execution_id: state.execution_id.unwrap_or_default(),
         procedure_id: state.procedure_id.clone().unwrap_or_default(),
         procedure_version: state.procedure_version.clone().unwrap_or_default(),
-        operator: state.operator.clone().unwrap_or_default(),
         status: status_string(&state.status),
         steps,
     }
@@ -113,15 +111,12 @@ fn summarize(state: &ExecutionState) -> ExecutionSummary {
 pub fn start_execution(
     state: State<'_, AppState>,
     template_path: String,
-    operator: String,
 ) -> Result<ExecutionSummary, String> {
     let source = std::fs::read_to_string(&template_path).map_err(|e| e.to_string())?;
     let template = parse_template(&source).map_err(|e| e.to_string())?;
 
     let mut exec_state = ExecutionState::new();
-    let events = exec_state
-        .start(&template, &operator)
-        .map_err(|e| e.to_string())?;
+    let events = exec_state.start(&template).map_err(|e| e.to_string())?;
 
     let execution_id = exec_state.execution_id.unwrap();
 

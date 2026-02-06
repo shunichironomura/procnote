@@ -75,7 +75,7 @@ pub struct ExecutionState {
     pub execution_id: Option<ExecutionId>,
     pub procedure_id: Option<String>,
     pub procedure_version: Option<String>,
-    pub operator: Option<String>,
+
     pub status: ExecutionStatus,
     /// Ordered step headings (preserves insertion order).
     pub step_order: Vec<String>,
@@ -99,7 +99,6 @@ impl ExecutionState {
             execution_id: None,
             procedure_id: None,
             procedure_version: None,
-            operator: None,
             status: ExecutionStatus::Pending,
             step_order: Vec::new(),
             steps: HashMap::new(),
@@ -124,7 +123,6 @@ impl ExecutionState {
                 execution_id,
                 procedure_id,
                 procedure_version,
-                operator,
                 ..
             } => {
                 if self.status != ExecutionStatus::Pending {
@@ -133,7 +131,6 @@ impl ExecutionState {
                 self.execution_id = Some(*execution_id);
                 self.procedure_id = Some(procedure_id.clone());
                 self.procedure_version = Some(procedure_version.clone());
-                self.operator = Some(operator.clone());
                 self.status = ExecutionStatus::Active;
             }
             Event::ExecutionCompleted { status, .. } => {
@@ -261,10 +258,7 @@ impl ExecutionState {
                     }
                 }
             }
-            Event::DeviationRecorded { .. } => {
-                // Legacy event: deviation feature has been removed.
-                // Accept the event during replay for backward compatibility but do nothing.
-            }
+
             Event::AttachmentAdded {
                 filename,
                 path,
@@ -285,11 +279,7 @@ impl ExecutionState {
     // -- Transition methods: produce events --
 
     /// Start a new execution from a template.
-    pub fn start(
-        &mut self,
-        template: &ProcedureTemplate,
-        operator: &str,
-    ) -> Result<Vec<Event>, ExecutionError> {
+    pub fn start(&mut self, template: &ProcedureTemplate) -> Result<Vec<Event>, ExecutionError> {
         if self.status != ExecutionStatus::Pending {
             return Err(ExecutionError::AlreadyStarted);
         }
@@ -304,7 +294,6 @@ impl ExecutionState {
             execution_id,
             procedure_id: template.metadata.id.clone(),
             procedure_version: template.metadata.version.clone(),
-            operator: operator.to_string(),
         };
         self.apply(&started)?;
         events.push(started);
@@ -561,7 +550,7 @@ mod tests {
     fn test_start_execution() {
         let template = sample_template();
         let mut state = ExecutionState::new();
-        let events = state.start(&template, "Nomura").unwrap();
+        let events = state.start(&template).unwrap();
 
         // 1 ExecutionStarted + 3 StepAdded
         assert_eq!(events.len(), 4);
@@ -579,7 +568,7 @@ mod tests {
         let mut all_events: Vec<Event> = Vec::new();
 
         // Start
-        all_events.extend(state.start(&template, "Nomura").unwrap());
+        all_events.extend(state.start(&template).unwrap());
 
         // Step through preconditions
         all_events.push(state.start_step("Preconditions").unwrap());
@@ -651,7 +640,7 @@ mod tests {
     fn test_add_step_during_execution() {
         let template = sample_template();
         let mut state = ExecutionState::new();
-        state.start(&template, "Nomura").unwrap();
+        state.start(&template).unwrap();
 
         // Add a step after "Step 1: Power On"
         state
@@ -673,8 +662,8 @@ mod tests {
     fn test_cannot_start_twice() {
         let template = sample_template();
         let mut state = ExecutionState::new();
-        state.start(&template, "Nomura").unwrap();
-        let result = state.start(&template, "Nomura");
+        state.start(&template).unwrap();
+        let result = state.start(&template);
         assert_eq!(result.unwrap_err(), ExecutionError::AlreadyStarted);
     }
 
@@ -689,7 +678,7 @@ mod tests {
     fn test_cannot_act_after_finish() {
         let template = sample_template();
         let mut state = ExecutionState::new();
-        state.start(&template, "Nomura").unwrap();
+        state.start(&template).unwrap();
         state.complete(CompletionStatus::Pass).unwrap();
 
         let result = state.start_step("Preconditions");
@@ -700,7 +689,7 @@ mod tests {
     fn test_cannot_complete_unstarted_step() {
         let template = sample_template();
         let mut state = ExecutionState::new();
-        state.start(&template, "Nomura").unwrap();
+        state.start(&template).unwrap();
 
         let result = state.complete_step("Preconditions");
         assert_eq!(
@@ -713,7 +702,7 @@ mod tests {
     fn test_cannot_start_completed_step() {
         let template = sample_template();
         let mut state = ExecutionState::new();
-        state.start(&template, "Nomura").unwrap();
+        state.start(&template).unwrap();
         state.start_step("Preconditions").unwrap();
         state.complete_step("Preconditions").unwrap();
 
@@ -728,7 +717,7 @@ mod tests {
     fn test_abort_execution() {
         let template = sample_template();
         let mut state = ExecutionState::new();
-        state.start(&template, "Nomura").unwrap();
+        state.start(&template).unwrap();
         state.abort("Power failure").unwrap();
 
         assert_eq!(
@@ -741,7 +730,7 @@ mod tests {
     fn test_attachment() {
         let template = sample_template();
         let mut state = ExecutionState::new();
-        state.start(&template, "Nomura").unwrap();
+        state.start(&template).unwrap();
 
         state
             .add_attachment("photo.jpg", "attachments/photo.jpg", "image/jpeg")
@@ -755,7 +744,7 @@ mod tests {
     fn test_global_note() {
         let template = sample_template();
         let mut state = ExecutionState::new();
-        state.start(&template, "Nomura").unwrap();
+        state.start(&template).unwrap();
 
         state.add_note("General observation", None).unwrap();
 
@@ -767,7 +756,7 @@ mod tests {
     fn test_duplicate_step_heading() {
         let template = sample_template();
         let mut state = ExecutionState::new();
-        state.start(&template, "Nomura").unwrap();
+        state.start(&template).unwrap();
 
         let result = state.add_step("Preconditions", None, None);
         assert_eq!(

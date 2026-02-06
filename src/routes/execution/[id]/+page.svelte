@@ -87,7 +87,7 @@
                 <div class="header-info">
                     <h2 class="procedure-title">{summary.procedure_id}</h2>
                     <span class="procedure-meta">
-                        v{summary.procedure_version} &middot; Operator: {summary.operator}
+                        v{summary.procedure_version}
                     </span>
                 </div>
             </div>

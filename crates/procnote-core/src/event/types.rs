@@ -29,7 +29,6 @@ pub enum Event {
         execution_id: ExecutionId,
         procedure_id: String,
         procedure_version: String,
-        operator: String,
     },
     ExecutionCompleted {
         at: DateTime<Utc>,
@@ -99,14 +98,6 @@ pub enum Event {
         text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         step_heading: Option<String>,
-    },
-
-    // -- Deviation (deprecated: kept for backward-compatible event replay) --
-    DeviationRecorded {
-        at: DateTime<Utc>,
-        execution_id: ExecutionId,
-        description: String,
-        justification: String,
     },
 
     // -- Attachment --

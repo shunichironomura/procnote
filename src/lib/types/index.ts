@@ -57,7 +57,6 @@ export interface ExecutionSummary {
   execution_id: string;
   procedure_id: string;
   procedure_version: string;
-  operator: string;
   status: string;
   steps: StepSummary[];
 }
