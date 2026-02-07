@@ -56,6 +56,13 @@
 - Pre-commit hooks are configured.
 - **Package manager:** `pnpm` (not `npm`). Use `pnpm add` to install dependencies, `pnpm remove` to uninstall.
 
+### Logging
+
+- Tauri log plugin outputs to stdout, the log directory, and the webview console.
+- **Log file location:** `~/Library/Logs/com.github.shunichironomura.procnote/procnote.log`
+- In debug mode, the log level is `Debug`. Use `log::info!`, `log::debug!`, `log::warn!`, etc. in Rust backend code.
+- Read logs with `tail -f ~/Library/Logs/com.github.shunichironomura.procnote/procnote.log`.
+
 ## Misc
 
 - The discussions logs can be found in the `.local` directory. Note that some of the documents are ideas that have been discarded later.
