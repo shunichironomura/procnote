@@ -22,8 +22,9 @@
     });
 
     function submit() {
-        if (!inputValue.trim()) return;
-        onrecord(definition.label, inputValue.trim(), definition.unit);
+        const val = String(inputValue).trim();
+        if (!val) return;
+        onrecord(definition.label, val, definition.unit);
     }
 
     let expectedText = $derived.by(() => {
@@ -81,7 +82,7 @@
             <button
                 class="btn-record"
                 onclick={submit}
-                disabled={disabled || !inputValue.trim()}
+                disabled={disabled || !String(inputValue).trim()}
             >
                 Record
             </button>
