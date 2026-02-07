@@ -43,8 +43,12 @@ class ExecutionStore {
     if (!this.summary) return;
     this.error = null;
     try {
-      this.summary = await api.recordAction(this.summary.execution_id, action);
+      console.debug("[ExecutionStore] act:", action);
+      const result = await api.recordAction(this.summary.execution_id, action);
+      console.debug("[ExecutionStore] act result: steps=", result.steps.length, "status=", result.status);
+      this.summary = result;
     } catch (e) {
+      console.error("[ExecutionStore] act error:", e);
       this.error = String(e);
     }
   }
