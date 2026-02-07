@@ -83,6 +83,7 @@ pub struct RecordedInput {
 pub struct ExecutionState {
     pub execution_id: Option<ExecutionId>,
     pub procedure_id: Option<String>,
+    pub procedure_title: Option<String>,
     pub procedure_version: Option<String>,
     pub name: Option<String>,
 
@@ -108,6 +109,7 @@ impl ExecutionState {
         Self {
             execution_id: None,
             procedure_id: None,
+            procedure_title: None,
             procedure_version: None,
             name: None,
             status: ExecutionStatus::Pending,
@@ -156,6 +158,7 @@ impl ExecutionState {
             Event::ExecutionStarted {
                 execution_id,
                 procedure_id,
+                procedure_title,
                 procedure_version,
                 ..
             } => {
@@ -164,6 +167,7 @@ impl ExecutionState {
                 }
                 self.execution_id = Some(*execution_id);
                 self.procedure_id = Some(procedure_id.clone());
+                self.procedure_title = Some(procedure_title.clone());
                 self.procedure_version = Some(procedure_version.clone());
                 self.status = ExecutionStatus::Active;
             }
@@ -340,6 +344,7 @@ impl ExecutionState {
             at: now,
             execution_id,
             procedure_id: template.metadata.id.clone(),
+            procedure_title: template.metadata.title.clone(),
             procedure_version: template.metadata.version.clone(),
         };
         self.apply(&started)?;

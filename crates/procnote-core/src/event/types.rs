@@ -28,6 +28,7 @@ pub enum Event {
         at: DateTime<Utc>,
         execution_id: ExecutionId,
         procedure_id: String,
+        procedure_title: String,
         procedure_version: String,
     },
     ExecutionCompleted {

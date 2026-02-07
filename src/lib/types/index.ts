@@ -57,6 +57,7 @@ export interface ExecutionSummary {
   execution_id: string;
   name?: string;
   procedure_id: string;
+  procedure_title: string;
   procedure_version: string;
   status: string;
   started_at?: string;
