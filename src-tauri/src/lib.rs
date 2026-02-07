@@ -1,9 +1,7 @@
 mod commands;
 mod state;
 
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 use tauri::Manager;
 
@@ -39,7 +37,6 @@ pub fn run(procedures_dir: Option<PathBuf>, executions_dir: Option<PathBuf>) {
             app.manage(AppState {
                 procedures_dir,
                 executions_dir,
-                executions: Mutex::new(HashMap::new()),
             });
 
             Ok(())

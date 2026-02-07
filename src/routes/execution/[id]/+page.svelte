@@ -4,6 +4,7 @@
     import { goto } from "$app/navigation";
     import { executionStore } from "$lib/stores/execution.svelte";
     import type { ExecutionAction, EventHistoryEntry } from "$lib/types";
+    import { formatTimestamp } from "$lib/utils/format";
     import StepCard from "$lib/components/StepCard.svelte";
     import AddStepDialog from "$lib/components/AddStepDialog.svelte";
 
@@ -36,6 +37,16 @@
         summary?.event_history.find(
             (e) =>
                 e.revertible &&
+                !e.reverted &&
+                (e.event_type === "execution_completed" ||
+                    e.event_type === "execution_aborted"),
+        ),
+    );
+
+    // Find the finish event (completed or aborted) for its timestamp.
+    let finishEvent = $derived(
+        summary?.event_history.find(
+            (e) =>
                 !e.reverted &&
                 (e.event_type === "execution_completed" ||
                     e.event_type === "execution_aborted"),
@@ -190,6 +201,9 @@
                         : summary.status === "fail"
                           ? "failed"
                           : "aborted"}
+                    {#if finishEvent}
+                        at {formatTimestamp(finishEvent.at)}
+                    {/if}
                     &mdash; {completedSteps}/{totalSteps} steps completed
                 </span>
                 {#if revertibleFinishEvent}

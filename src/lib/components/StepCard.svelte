@@ -1,5 +1,6 @@
 <script lang="ts">
     import type { StepSummary, EventHistoryEntry } from "$lib/types";
+    import { formatTimestamp } from "$lib/utils/format";
     import CheckboxItem from "./CheckboxItem.svelte";
     import InputField from "./InputField.svelte";
     import NoteEditor from "./NoteEditor.svelte";
@@ -119,6 +120,9 @@
     <div class="step-header">
         <div class="step-status-indicator"></div>
         <h3 class="step-heading">{stepSummary.heading}</h3>
+        {#if stepSummary.status_at}
+            <span class="timestamp">{formatTimestamp(stepSummary.status_at)}</span>
+        {/if}
         <span class="step-status-badge">{stepSummary.status}</span>
     </div>
 
@@ -320,6 +324,12 @@
         color: #444;
         line-height: 1.5;
         white-space: pre-line;
+    }
+
+    .timestamp {
+        font-size: 11px;
+        color: #999;
+        white-space: nowrap;
     }
 
     .step-status-badge {
