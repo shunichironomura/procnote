@@ -1,5 +1,6 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -315,12 +316,38 @@ fn event_at(event: &Event) -> String {
     }
 }
 
+/// Format the execution directory name as `{YYYYMMDD}T{HHMMSS}-{uuid_8}`.
+fn execution_dir_name(at: &DateTime<Utc>, execution_id: ExecutionId) -> String {
+    format!(
+        "{}-{}",
+        at.format("%Y%m%dT%H%M%S"),
+        &execution_id.to_string()[..8]
+    )
+}
+
+/// Find the execution directory by matching the short UUID suffix.
+fn find_execution_dir(executions_dir: &Path, execution_id: ExecutionId) -> Option<PathBuf> {
+    let suffix = format!("-{}", &execution_id.to_string()[..8]);
+    let entries = std::fs::read_dir(executions_dir).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir()
+            && let Some(name) = path.file_name().and_then(|n| n.to_str())
+            && name.ends_with(&suffix)
+        {
+            return Some(path);
+        }
+    }
+    None
+}
+
 /// Load an execution from disk by replaying its event log.
 fn load_execution_from_disk(
     executions_dir: &Path,
     execution_id: ExecutionId,
-) -> Result<(ExecutionState, Vec<Event>, std::path::PathBuf), String> {
-    let exec_dir = executions_dir.join(execution_id.to_string());
+) -> Result<(ExecutionState, Vec<Event>, PathBuf), String> {
+    let exec_dir = find_execution_dir(executions_dir, execution_id)
+        .ok_or_else(|| format!("Execution not found: {execution_id}"))?;
     let log_path = exec_dir.join("events.jsonl");
     if !log_path.exists() {
         return Err(format!("Execution not found: {execution_id}"));
@@ -344,8 +371,19 @@ pub fn start_execution(
 
     let execution_id = exec_state.execution_id.unwrap();
 
+    // Extract the timestamp from the ExecutionStarted event.
+    let started_at = events
+        .iter()
+        .find_map(|e| match e {
+            Event::ExecutionStarted { at, .. } => Some(*at),
+            _ => None,
+        })
+        .expect("start() must produce an ExecutionStarted event");
+
     // Create execution directory and log file.
-    let exec_dir = state.executions_dir.join(execution_id.to_string());
+    let exec_dir = state
+        .executions_dir
+        .join(execution_dir_name(&started_at, execution_id));
     std::fs::create_dir_all(&exec_dir).map_err(|e| e.to_string())?;
 
     // Copy template snapshot.
@@ -534,21 +572,25 @@ pub fn list_executions(state: State<'_, AppState>) -> Result<Vec<ExecutionSummar
         if !dir_path.is_dir() {
             continue;
         }
-        // Parse the directory name as UUID.
-        let dir_name = dir_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_default();
-        let exec_id: ExecutionId = match dir_name.parse() {
-            Ok(id) => id,
-            Err(_) => continue,
-        };
-        match load_execution_from_disk(&state.executions_dir, exec_id) {
-            Ok((exec_state, events, _)) => {
-                summaries.push(summarize(&exec_state, Some(&events)));
-            }
-            Err(e) => log::warn!("Failed to load execution {exec_id}: {e}"),
+        let log_path = dir_path.join("events.jsonl");
+        if !log_path.exists() {
+            continue;
         }
+        let events = match read_events(&log_path) {
+            Ok(events) => events,
+            Err(e) => {
+                log::warn!("Failed to read events from {}: {e}", log_path.display());
+                continue;
+            }
+        };
+        let exec_state = match ExecutionState::from_events(&events) {
+            Ok(state) => state,
+            Err(e) => {
+                log::warn!("Failed to replay events from {}: {e}", log_path.display());
+                continue;
+            }
+        };
+        summaries.push(summarize(&exec_state, Some(&events)));
     }
 
     Ok(summaries)
