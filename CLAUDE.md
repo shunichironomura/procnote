@@ -54,6 +54,7 @@
 - `npx svelte-check` — TypeScript type checking for frontend.
 - `biome` — frontend linting/formatting.
 - Pre-commit hooks are configured.
+- **Package manager:** `pnpm` (not `npm`). Use `pnpm add` to install dependencies, `pnpm remove` to uninstall.
 
 ## Misc
 
