@@ -1,5 +1,5 @@
-import * as api from "$lib/api/commands";
 import { debug, error as logError } from "@tauri-apps/plugin-log";
+import * as api from "$lib/api/commands";
 import type { ExecutionAction, ExecutionSummary } from "$lib/types";
 
 class ExecutionStore {

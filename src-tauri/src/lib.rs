@@ -22,9 +22,7 @@ pub fn run(procedures_dir: Option<PathBuf>, executions_dir: Option<PathBuf>) {
                             tauri_plugin_log::TargetKind::Stdout,
                         ))
                         .target(tauri_plugin_log::Target::new(
-                            tauri_plugin_log::TargetKind::LogDir {
-                                file_name: None,
-                            },
+                            tauri_plugin_log::TargetKind::LogDir { file_name: None },
                         ))
                         .target(tauri_plugin_log::Target::new(
                             tauri_plugin_log::TargetKind::Webview,
