@@ -62,7 +62,7 @@
 			<h2 class="section-title">Recent Executions</h2>
 			<div class="execution-list">
 				{#each executions as exec}
-					<button class="execution-card" onclick={() => resumeExecution(exec)}>
+					<button class="execution-card" class:execution-active={exec.status === 'active'} onclick={() => resumeExecution(exec)}>
 						<div class="exec-header">
 							<span class="exec-name">{exec.name ?? exec.procedure_id}</span>
 							<span class="exec-status" class:status-active={exec.status === 'active'} class:status-pass={exec.status === 'pass'} class:status-fail={exec.status === 'fail'} class:status-aborted={exec.status === 'aborted'}>
@@ -123,6 +123,11 @@
 		border-radius: 6px;
 		cursor: pointer;
 		font: inherit;
+	}
+
+	.execution-card.execution-active {
+		border-left: 3px solid #2e7d32;
+		background: #f9fdf9;
 	}
 
 	.execution-card:hover {
