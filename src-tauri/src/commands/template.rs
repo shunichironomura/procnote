@@ -22,7 +22,9 @@ pub struct TemplateSummary {
 )]
 pub fn list_templates(state: State<'_, AppState>) -> Result<Vec<TemplateSummary>, String> {
     let dir = &state.procedures_dir;
+    log::info!("list_templates: scanning directory {}", dir.display());
     if !dir.exists() {
+        log::warn!("list_templates: directory does not exist: {}", dir.display());
         return Ok(Vec::new());
     }
 
@@ -32,10 +34,18 @@ pub fn list_templates(state: State<'_, AppState>) -> Result<Vec<TemplateSummary>
     for entry in entries {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
+        log::debug!("list_templates: found entry {}", path.display());
         if path.extension().and_then(|e| e.to_str()) == Some("md") {
+            log::info!("list_templates: parsing template {}", path.display());
             let source = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
             match parse_template(&source) {
                 Ok(template) => {
+                    log::info!(
+                        "list_templates: OK — id={}, title={}, steps={}",
+                        template.metadata.id,
+                        template.metadata.title,
+                        template.steps.len()
+                    );
                     summaries.push(TemplateSummary {
                         id: template.metadata.id,
                         title: template.metadata.title,
@@ -44,12 +54,15 @@ pub fn list_templates(state: State<'_, AppState>) -> Result<Vec<TemplateSummary>
                     });
                 }
                 Err(e) => {
-                    log::warn!("Skipping invalid template {}: {e}", path.display());
+                    log::warn!("list_templates: skipping invalid template {}: {e}", path.display());
                 }
             }
+        } else {
+            log::debug!("list_templates: skipping non-.md file {}", path.display());
         }
     }
 
+    log::info!("list_templates: returning {} templates", summaries.len());
     Ok(summaries)
 }
 
