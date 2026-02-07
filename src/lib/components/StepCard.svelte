@@ -1,6 +1,7 @@
 <script lang="ts">
     import type { StepSummary, EventHistoryEntry } from "$lib/types";
     import { formatTimestamp } from "$lib/utils/format";
+    import AttachmentField from "./AttachmentField.svelte";
     import CheckboxItem from "./CheckboxItem.svelte";
     import InputField from "./InputField.svelte";
     import NoteEditor from "./NoteEditor.svelte";
@@ -38,17 +39,15 @@
             .at(-1),
     );
 
-    // Build a map of input label -> most recent revertible input_recorded event.
-    // Description format: "Recorded <label> = <value> in <step_heading>"
+    // Build a map of input label -> most recent revertible input/attachment event.
     let revertibleInputEvents = $derived.by(() => {
         const map = new Map<string, EventHistoryEntry>();
         for (const e of revertibleEvents) {
-            if (e.event_type === "input_recorded") {
-                // Extract label from description: "Recorded <label> = ..."
-                const match = e.description.match(/^Recorded (.+?) = /);
-                if (match) {
-                    map.set(match[1], e);
-                }
+            if (
+                (e.event_type === "input_recorded" || e.event_type === "attachment_added") &&
+                e.label
+            ) {
+                map.set(e.label, e);
             }
         }
         return map;
@@ -101,6 +100,17 @@
         });
     }
 
+    function attachFile(label: string, filename: string, path: string, contentType: string) {
+        onaction({
+            action: "add_attachment",
+            step_heading: stepSummary.heading,
+            label,
+            filename,
+            path,
+            content_type: contentType,
+        });
+    }
+
     function addNote(text: string) {
         onaction({
             action: "add_note",
@@ -146,22 +156,36 @@
         <div class="step-section">
             {#each stepSummary.input_definitions as defn}
                 {@const inputEvent = revertibleInputEvents.get(defn.label)}
-                <InputField
-                    definition={defn}
-                    recorded={stepSummary.inputs.find(
-                        (i) => i.label === defn.label,
-                    )}
-                    disabled={!isInteractable}
-                    onrecord={recordInput}
-                    onrevert={inputEvent && executionActive
-                        ? () =>
-                              onaction({
-                                  action: "revert_event",
-                                  event_index: inputEvent.index,
-                                  reason: "Reverted by operator",
-                              })
-                        : undefined}
-                />
+                {@const revertHandler = inputEvent && executionActive
+                    ? () =>
+                          onaction({
+                              action: "revert_event",
+                              event_index: inputEvent.index,
+                              reason: "Reverted by operator",
+                          })
+                    : undefined}
+                {#if defn.type === "attachment"}
+                    <AttachmentField
+                        definition={defn}
+                        recorded={stepSummary.inputs.find(
+                            (i) => i.label === defn.label,
+                        )}
+                        disabled={!isInteractable}
+                        onattach={(filename, path, contentType) =>
+                            attachFile(defn.label, filename, path, contentType)}
+                        onrevert={revertHandler}
+                    />
+                {:else}
+                    <InputField
+                        definition={defn}
+                        recorded={stepSummary.inputs.find(
+                            (i) => i.label === defn.label,
+                        )}
+                        disabled={!isInteractable}
+                        onrecord={recordInput}
+                        onrevert={revertHandler}
+                    />
+                {/if}
             {/each}
         </div>
     {/if}

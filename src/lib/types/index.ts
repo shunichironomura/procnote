@@ -41,13 +41,13 @@ export type StepContent =
 export interface InputDefinition {
   id: string;
   label: string;
-  input_type: InputType;
+  type: InputType;
   unit?: string;
   options: string[];
   expected?: ExpectedValue;
 }
 
-export type InputType = "measurement" | "text" | "selection";
+export type InputType = "measurement" | "text" | "selection" | "attachment";
 
 export type ExpectedValue = { min: number; max: number } | string;
 
@@ -73,6 +73,8 @@ export interface EventHistoryEntry {
   description: string;
   revertible: boolean;
   reverted: boolean;
+  step_heading?: string;
+  label?: string;
 }
 
 export interface StepSummary {
@@ -132,6 +134,8 @@ export type ExecutionAction =
     }
   | {
       action: "add_attachment";
+      step_heading: string;
+      label: string;
       filename: string;
       path: string;
       content_type: string;

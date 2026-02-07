@@ -38,6 +38,12 @@ pub struct EventHistoryEntry {
     pub description: String,
     pub revertible: bool,
     pub reverted: bool,
+    /// Step heading for step-scoped events, if applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step_heading: Option<String>,
+    /// Label for input/attachment events, if applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -168,6 +174,14 @@ fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSumma
             } => {
                 input_at.insert((step_heading, label), at.to_rfc3339());
             }
+            Event::AttachmentAdded {
+                at,
+                step_heading,
+                label,
+                ..
+            } => {
+                input_at.insert((step_heading, label), at.to_rfc3339());
+            }
             Event::NoteAdded {
                 at,
                 step_heading: Some(heading),
@@ -267,6 +281,7 @@ fn build_event_history(events: &[Event]) -> Vec<EventHistoryEntry> {
         .map(|(index, event)| {
             let revertible = event.revertibility() == Revertibility::Revertible
                 && !reverted_indices.contains(&index);
+            let (step_heading, label) = event_step_and_label(event);
             EventHistoryEntry {
                 index,
                 event_type: event_type_string(event),
@@ -274,9 +289,33 @@ fn build_event_history(events: &[Event]) -> Vec<EventHistoryEntry> {
                 description: event.description(),
                 revertible,
                 reverted: reverted_indices.contains(&index),
+                step_heading,
+                label,
             }
         })
         .collect()
+}
+
+/// Extract optional step_heading and label from an event.
+fn event_step_and_label(event: &Event) -> (Option<String>, Option<String>) {
+    match event {
+        Event::StepStarted { step_heading, .. }
+        | Event::StepCompleted { step_heading, .. }
+        | Event::StepSkipped { step_heading, .. } => (Some(step_heading.clone()), None),
+        Event::CheckboxToggled { step_heading, .. } => (Some(step_heading.clone()), None),
+        Event::InputRecorded {
+            step_heading,
+            label,
+            ..
+        } => (Some(step_heading.clone()), Some(label.clone())),
+        Event::AttachmentAdded {
+            step_heading,
+            label,
+            ..
+        } => (Some(step_heading.clone()), Some(label.clone())),
+        Event::NoteAdded { step_heading, .. } => (step_heading.clone(), None),
+        _ => (None, None),
+    }
 }
 
 fn event_type_string(event: &Event) -> String {
@@ -314,6 +353,14 @@ fn event_at(event: &Event) -> String {
         | Event::ExecutionRenamed { at, .. }
         | Event::EventReverted { at, .. } => at.to_rfc3339(),
     }
+}
+
+/// Compute the SHA-256 hash of a file, returning a lowercase hex string.
+fn compute_sha256(path: &str) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    let bytes = std::fs::read(path)?;
+    let hash = Sha256::digest(&bytes);
+    Ok(format!("{hash:x}"))
 }
 
 /// Format the execution directory name as `{YYYYMMDD}T{HHMMSS}-{uuid_8}`.
@@ -434,6 +481,8 @@ pub enum ExecutionAction {
         after_step: Option<String>,
     },
     AddAttachment {
+        step_heading: String,
+        label: String,
         filename: String,
         path: String,
         content_type: String,
@@ -521,12 +570,35 @@ pub fn record_action(
             .add_step(&heading, description.as_deref(), after_step.as_deref())
             .map_err(|e| e.to_string())?,
         ExecutionAction::AddAttachment {
+            step_heading,
+            label,
             filename,
             path,
             content_type,
-        } => exec_state
-            .add_attachment(&filename, &path, &content_type)
-            .map_err(|e| e.to_string())?,
+        } => {
+            let sha256 = compute_sha256(&path).map_err(|e| e.to_string())?;
+
+            // Copy file into <exec_dir>/attachments/<hash7>-<filename>.
+            let short_hash = &sha256[..7];
+            let stored_name = format!("{short_hash}-{filename}");
+            let exec_dir = log_path.parent().expect("log_path must have a parent");
+            let attachments_dir = exec_dir.join("attachments");
+            std::fs::create_dir_all(&attachments_dir).map_err(|e| e.to_string())?;
+            let dest = attachments_dir.join(&stored_name);
+            std::fs::copy(&path, &dest).map_err(|e| e.to_string())?;
+            let relative_path = format!("attachments/{stored_name}");
+
+            exec_state
+                .add_attachment(
+                    &step_heading,
+                    &label,
+                    &filename,
+                    &relative_path,
+                    &content_type,
+                    &sha256,
+                )
+                .map_err(|e| e.to_string())?
+        }
         ExecutionAction::Complete { status } => {
             exec_state.complete(status).map_err(|e| e.to_string())?
         }

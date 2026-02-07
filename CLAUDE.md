@@ -4,6 +4,8 @@
 - This project is not yet published. So backward compatibility is not a concern. Make the simplest possible implementation.
 - `procnote` uses filesystem-based storage with append-only JSONL event logs.
 - Use filesystem and avoid in-memory caches as much as possible, to ensure crash safety, git-friendliness, and avoid cache invalidation issues.
+- Don't rely on regex for determining something. Implement proper data and logic structures instead.
+  - Using regex is a code smell in this project where backward compatibility is not a concern.
 
 ## Misc
 

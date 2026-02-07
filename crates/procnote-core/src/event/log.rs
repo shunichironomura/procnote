@@ -257,9 +257,12 @@ mod tests {
             Event::AttachmentAdded {
                 at: now,
                 execution_id: id,
+                step_heading: "Step 1".to_string(),
+                label: "Log file".to_string(),
                 filename: "photo.jpg".to_string(),
                 path: "attachments/photo.jpg".to_string(),
                 content_type: "image/jpeg".to_string(),
+                sha256: "abc123".to_string(),
             },
         ];
 

@@ -47,6 +47,9 @@ Execute self-test command via EGSE.
   type: selection
   options: ["PASS", "FAIL", "TIMEOUT"]
   expected: "PASS"
+- id: selftest-log
+  label: "Attach self-test log file"
+  type: attachment
 ```
 
 ## Postconditions
