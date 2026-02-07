@@ -4,6 +4,7 @@
     import { goto } from "$app/navigation";
     import { executionStore } from "$lib/stores/execution.svelte";
     import type { ExecutionAction, EventHistoryEntry } from "$lib/types";
+    import { formatTimestamp } from "$lib/utils/format";
     import StepCard from "$lib/components/StepCard.svelte";
     import AddStepDialog from "$lib/components/AddStepDialog.svelte";
 
@@ -42,6 +43,16 @@
         ),
     );
 
+    // Find the finish event (completed or aborted) for its timestamp.
+    let finishEvent = $derived(
+        summary?.event_history.find(
+            (e) =>
+                !e.reverted &&
+                (e.event_type === "execution_completed" ||
+                    e.event_type === "execution_aborted"),
+        ),
+    );
+
     // Event types that are scoped to a specific step.
     const stepScopedEventTypes = new Set([
         "step_started",
@@ -62,6 +73,25 @@
                 !entry.reverted &&
                 stepScopedEventTypes.has(entry.event_type)
             ) {
+                for (const heading of stepHeadings) {
+                    if (entry.description.includes(heading)) {
+                        if (!map.has(heading)) map.set(heading, []);
+                        map.get(heading)!.push(entry);
+                        break;
+                    }
+                }
+            }
+        }
+        return map;
+    });
+
+    // Build a map of step_heading -> all non-reverted events for that step (for timestamps).
+    let allEventsByStep = $derived.by(() => {
+        const map = new Map<string, EventHistoryEntry[]>();
+        if (!summary) return map;
+
+        for (const entry of summary.event_history) {
+            if (!entry.reverted && stepScopedEventTypes.has(entry.event_type)) {
                 for (const heading of stepHeadings) {
                     if (entry.description.includes(heading)) {
                         if (!map.has(heading)) map.set(heading, []);
@@ -190,6 +220,9 @@
                         : summary.status === "fail"
                           ? "failed"
                           : "aborted"}
+                    {#if finishEvent}
+                        at {formatTimestamp(finishEvent.at)}
+                    {/if}
                     &mdash; {completedSteps}/{totalSteps} steps completed
                 </span>
                 {#if revertibleFinishEvent}
@@ -214,6 +247,7 @@
                     {stepSummary}
                     executionActive={isActive ?? false}
                     revertibleEvents={revertibleEventsByStep.get(stepSummary.heading) ?? []}
+                    allEvents={allEventsByStep.get(stepSummary.heading) ?? []}
                     onaction={handleAction}
                 />
             {/each}
