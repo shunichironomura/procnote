@@ -546,12 +546,21 @@ pub fn record_action(
             content_type,
         } => {
             let sha256 = compute_sha256(&path).map_err(|e| e.to_string())?;
+
+            // Copy file into <exec_dir>/attachments/<filename>.
+            let exec_dir = log_path.parent().expect("log_path must have a parent");
+            let attachments_dir = exec_dir.join("attachments");
+            std::fs::create_dir_all(&attachments_dir).map_err(|e| e.to_string())?;
+            let dest = attachments_dir.join(&filename);
+            std::fs::copy(&path, &dest).map_err(|e| e.to_string())?;
+            let relative_path = format!("attachments/{filename}");
+
             exec_state
                 .add_attachment(
                     &step_heading,
                     &label,
                     &filename,
-                    &path,
+                    &relative_path,
                     &content_type,
                     &sha256,
                 )
