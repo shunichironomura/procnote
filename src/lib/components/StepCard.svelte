@@ -1,10 +1,17 @@
 <script lang="ts">
+    import DOMPurify from "dompurify";
+    import { marked } from "marked";
+
     import type { StepSummary, EventHistoryEntry } from "$lib/types";
     import { formatTimestamp } from "$lib/utils/format";
     import AttachmentField from "./AttachmentField.svelte";
     import CheckboxItem from "./CheckboxItem.svelte";
     import InputField from "./InputField.svelte";
     import NoteEditor from "./NoteEditor.svelte";
+
+    function renderMarkdown(source: string): string {
+        return DOMPurify.sanitize(marked.parse(source, { async: false }) as string);
+    }
 
     let {
         stepSummary,
@@ -137,7 +144,7 @@
     </div>
 
     {#if stepSummary.description}
-        <p class="step-description">{stepSummary.description}</p>
+        <div class="step-description">{@html renderMarkdown(stepSummary.description)}</div>
     {/if}
 
     {#if stepSummary.checkboxes.length > 0}
@@ -351,7 +358,25 @@
         font-size: 14px;
         color: #444;
         line-height: 1.5;
-        white-space: pre-line;
+    }
+
+    .step-description :global(p) {
+        margin: 0 0 0.5em;
+    }
+
+    .step-description :global(p:last-child) {
+        margin-bottom: 0;
+    }
+
+    .step-description :global(a) {
+        color: #1a73e8;
+    }
+
+    .step-description :global(code) {
+        background: #f0f0f0;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 13px;
     }
 
     .timestamp {

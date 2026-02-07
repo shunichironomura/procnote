@@ -20,7 +20,12 @@ requirement_traces:
 
 Connect PSU to DUT J1 connector. Set voltage to 5.0V. Enable output.
 
+- [ ] a checkbox item
+- [ ] a nested checkbox item
+
 ### Some heading
+
+text here
 
 ```python
 def example_function():
@@ -36,6 +41,8 @@ def example_function():
     min: 100
     max: 150
 ```
+
+text also here
 
 ## Step 2: Functional Check
 
