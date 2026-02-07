@@ -12,6 +12,8 @@
     let showCompleteDialog = $state(false);
     let showAbortDialog = $state(false);
     let abortReason = $state("");
+    let editingName = $state(false);
+    let editNameValue = $state("");
 
     let executionId = $derived(page.params.id ?? "");
 
@@ -118,6 +120,26 @@
         abortReason = "";
     }
 
+    function startEditingName() {
+        editNameValue = summary?.name ?? summary?.procedure_id ?? "";
+        editingName = true;
+    }
+
+    async function saveName() {
+        const trimmed = editNameValue.trim();
+        if (trimmed && trimmed !== summary?.name) {
+            await executionStore.act({
+                action: "rename_execution",
+                name: trimmed,
+            });
+        }
+        editingName = false;
+    }
+
+    function cancelEditName() {
+        editingName = false;
+    }
+
     function goHome() {
         executionStore.reset();
         goto("/");
@@ -139,9 +161,30 @@
             <div class="header-left">
                 <button class="btn-back" onclick={goHome}>&larr; Back</button>
                 <div class="header-info">
-                    <h2 class="procedure-title">{summary.procedure_id}</h2>
+                    {#if editingName}
+                        <!-- svelte-ignore a11y_autofocus -->
+                        <input
+                            class="name-input"
+                            type="text"
+                            bind:value={editNameValue}
+                            onblur={saveName}
+                            onkeydown={(e) => {
+                                if (e.key === "Enter") saveName();
+                                if (e.key === "Escape") cancelEditName();
+                            }}
+                            autofocus
+                        />
+                    {:else}
+                        <button
+                            class="execution-name"
+                            onclick={startEditingName}
+                            title="Click to rename"
+                        >
+                            {summary.name ?? summary.procedure_id}
+                        </button>
+                    {/if}
                     <span class="procedure-meta">
-                        v{summary.procedure_version}
+                        {summary.procedure_id} v{summary.procedure_version}
                     </span>
                 </div>
             </div>
@@ -375,10 +418,33 @@
         gap: 2px;
     }
 
-    .procedure-title {
+    .execution-name {
         margin: 0;
+        padding: 0;
         font-size: 18px;
         font-weight: 700;
+        font-family: inherit;
+        cursor: pointer;
+        background: none;
+        border: none;
+        border-bottom: 1px dashed transparent;
+        text-align: left;
+        color: inherit;
+    }
+
+    .execution-name:hover {
+        border-bottom-color: #aaa;
+    }
+
+    .name-input {
+        font-size: 18px;
+        font-weight: 700;
+        font-family: inherit;
+        border: 1px solid #1a1a2e;
+        border-radius: 4px;
+        padding: 2px 6px;
+        outline: none;
+        min-width: 200px;
     }
 
     .procedure-meta {

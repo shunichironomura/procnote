@@ -55,6 +55,7 @@ export type ExpectedValue = { min: number; max: number } | string;
 
 export interface ExecutionSummary {
   execution_id: string;
+  name?: string;
   procedure_id: string;
   procedure_version: string;
   status: string;
@@ -136,4 +137,5 @@ export type ExecutionAction =
     }
   | { action: "complete"; status: "pass" | "fail" | "aborted" }
   | { action: "abort"; reason: string }
+  | { action: "rename_execution"; name: string }
   | { action: "revert_event"; event_index: number; reason: string };

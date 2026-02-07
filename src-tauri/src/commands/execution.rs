@@ -14,6 +14,7 @@ use procnote_core::template::types::InputDefinition;
 #[derive(Debug, Serialize)]
 pub struct ExecutionSummary {
     pub execution_id: ExecutionId,
+    pub name: Option<String>,
     pub procedure_id: String,
     pub procedure_version: String,
     pub status: String,
@@ -231,6 +232,7 @@ fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSumma
 
     ExecutionSummary {
         execution_id: state.execution_id.unwrap_or_default(),
+        name: state.name.clone(),
         procedure_id: state.procedure_id.clone().unwrap_or_default(),
         procedure_version: state.procedure_version.clone().unwrap_or_default(),
         status: status_string(&state.status),
@@ -287,6 +289,7 @@ fn event_type_string(event: &Event) -> String {
         Event::InputRecorded { .. } => "input_recorded",
         Event::NoteAdded { .. } => "note_added",
         Event::AttachmentAdded { .. } => "attachment_added",
+        Event::ExecutionRenamed { .. } => "execution_renamed",
         Event::EventReverted { .. } => "event_reverted",
     }
     .to_string()
@@ -305,6 +308,7 @@ fn event_at(event: &Event) -> String {
         | Event::InputRecorded { at, .. }
         | Event::NoteAdded { at, .. }
         | Event::AttachmentAdded { at, .. }
+        | Event::ExecutionRenamed { at, .. }
         | Event::EventReverted { at, .. } => at.to_rfc3339(),
     }
 }
@@ -400,6 +404,9 @@ pub enum ExecutionAction {
     Abort {
         reason: String,
     },
+    RenameExecution {
+        name: String,
+    },
     RevertEvent {
         event_index: usize,
         reason: String,
@@ -485,6 +492,9 @@ pub fn record_action(
         }
         ExecutionAction::Abort { reason } => {
             exec_state.abort(&reason).map_err(|e| e.to_string())?
+        }
+        ExecutionAction::RenameExecution { name } => {
+            exec_state.rename(&name).map_err(|e| e.to_string())?
         }
         ExecutionAction::RevertEvent { .. } => unreachable!("handled above"),
     };

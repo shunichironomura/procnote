@@ -64,13 +64,13 @@
 				{#each executions as exec}
 					<button class="execution-card" onclick={() => resumeExecution(exec)}>
 						<div class="exec-header">
-							<span class="exec-id">{exec.procedure_id}</span>
+							<span class="exec-name">{exec.name ?? exec.procedure_id}</span>
 							<span class="exec-status" class:status-active={exec.status === 'active'} class:status-pass={exec.status === 'pass'} class:status-fail={exec.status === 'fail'} class:status-aborted={exec.status === 'aborted'}>
 								{exec.status}
 							</span>
 						</div>
 						<div class="exec-meta">
-							<span>v{exec.procedure_version}</span>
+							<span>{exec.procedure_id} v{exec.procedure_version}</span>
 							{#if exec.finished_at && exec.started_at}
 								<span class="exec-time">{formatTimestamp(exec.started_at)} — {formatTimestamp(exec.finished_at)}</span>
 							{:else if exec.started_at}
@@ -137,7 +137,7 @@
 		margin-bottom: 4px;
 	}
 
-	.exec-id {
+	.exec-name {
 		font-weight: 600;
 	}
 
