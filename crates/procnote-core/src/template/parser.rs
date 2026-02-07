@@ -45,22 +45,53 @@ fn split_frontmatter(source: &str) -> Result<(&str, &str), ParseError> {
 
 /// Parse the Markdown body into a list of steps, split on `## ` headings.
 fn parse_body(body: &str) -> Result<Vec<Step>, ParseError> {
+    use std::ops::Range;
+
+    /// Flush accumulated prose from `body[prose_start..boundary]` into `content`.
+    fn flush_prose(
+        body: &str,
+        prose_start: &mut Option<usize>,
+        boundary: usize,
+        content: &mut Vec<StepContent>,
+    ) {
+        if let Some(start) = prose_start.take() {
+            let raw = body[start..boundary].trim();
+            if !raw.is_empty() {
+                content.push(StepContent::Prose {
+                    text: raw.to_string(),
+                });
+            }
+        }
+    }
+
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TASKLISTS);
 
     let parser = Parser::new_ext(body, options);
-    let events: Vec<Event<'_>> = parser.collect();
+    let events: Vec<(Event<'_>, Range<usize>)> = parser.into_offset_iter().collect();
 
     let mut steps: Vec<Step> = Vec::new();
     let mut current_heading: Option<String> = None;
     let mut current_content: Vec<StepContent> = Vec::new();
+    // Track the start of the current prose region in `body`.
+    let mut prose_start: Option<usize> = None;
+    // Depth counter for task lists. While > 0, we suppress prose_start updates
+    // because events inside a task list should not start a new prose region.
+    let mut task_list_depth: usize = 0;
 
     let mut i = 0;
     while i < events.len() {
-        match &events[i] {
+        match &events[i].0 {
             Event::Start(Tag::Heading { level, .. })
                 if *level == pulldown_cmark::HeadingLevel::H2 =>
             {
+                // Flush any accumulated prose before this heading.
+                flush_prose(
+                    body,
+                    &mut prose_start,
+                    events[i].1.start,
+                    &mut current_content,
+                );
                 // Flush previous step.
                 if let Some(heading) = current_heading.take() {
                     steps.push(Step {
@@ -71,41 +102,64 @@ fn parse_body(body: &str) -> Result<Vec<Step>, ParseError> {
                 // Collect heading text.
                 let heading_text = collect_heading_text(&events, &mut i);
                 current_heading = Some(heading_text);
+                prose_start = None;
+                task_list_depth = 0;
             }
             Event::TaskListMarker(checked) => {
                 let checked = *checked;
-                // The task list marker is followed by text events inside the list item.
-                // Collect the text of this list item.
+                // On the first checkbox in a task list, flush any preceding prose
+                // up to the start of the enclosing list.
+                if task_list_depth == 0 {
+                    let list_start = find_list_start(&events, i);
+                    flush_prose(body, &mut prose_start, list_start, &mut current_content);
+                    task_list_depth = 1;
+                }
                 let text = collect_task_text(&events, &mut i);
                 current_content.push(StepContent::Checkbox {
                     text: text.trim().to_string(),
                     checked,
                 });
             }
+            Event::End(TagEnd::List(_)) if task_list_depth > 0 => {
+                // Exiting the task list — prose can start after this event.
+                task_list_depth = 0;
+                i += 1;
+                // Set prose_start to the position after this list ends.
+                if i < events.len() {
+                    prose_start = Some(events[i].1.start);
+                }
+            }
             Event::Start(Tag::CodeBlock(pulldown_cmark::CodeBlockKind::Fenced(lang)))
                 if lang.as_ref() == "inputs" =>
             {
-                // Collect the code block content.
+                // Flush prose before this code block.
+                flush_prose(
+                    body,
+                    &mut prose_start,
+                    events[i].1.start,
+                    &mut current_content,
+                );
                 let code = collect_code_block(&events, &mut i);
                 let inputs = parse_inputs_block(&code)?;
                 current_content.push(StepContent::InputBlock { inputs });
-            }
-            Event::Start(Tag::Paragraph) => {
-                let text = collect_paragraph_text(&events, &mut i);
-                let trimmed = text.trim();
-                if !trimmed.is_empty() {
-                    current_content.push(StepContent::Prose {
-                        text: trimmed.to_string(),
-                    });
+                // Prose resumes after code block.
+                if i < events.len() {
+                    prose_start = Some(events[i].1.start);
                 }
             }
             _ => {
+                // Any other event: start tracking as prose if not already,
+                // unless we're inside a task list.
+                if prose_start.is_none() && current_heading.is_some() && task_list_depth == 0 {
+                    prose_start = Some(events[i].1.start);
+                }
                 i += 1;
             }
         }
     }
 
-    // Flush last step.
+    // Flush trailing prose and the last step.
+    flush_prose(body, &mut prose_start, body.len(), &mut current_content);
     if let Some(heading) = current_heading.take() {
         steps.push(Step {
             heading,
@@ -116,12 +170,26 @@ fn parse_body(body: &str) -> Result<Vec<Step>, ParseError> {
     Ok(steps)
 }
 
+/// Walk backwards from a `TaskListMarker` to find the source start of its enclosing list.
+fn find_list_start(events: &[(Event<'_>, std::ops::Range<usize>)], marker_idx: usize) -> usize {
+    // Walk backwards to find the Start(List) event.
+    let mut j = marker_idx;
+    while j > 0 {
+        j -= 1;
+        if matches!(&events[j].0, Event::Start(Tag::List(_))) {
+            return events[j].1.start;
+        }
+    }
+    // Fallback: use the marker's own position.
+    events[marker_idx].1.start
+}
+
 /// Collect the text content of a heading, advancing `i` past the heading end.
-fn collect_heading_text(events: &[Event<'_>], i: &mut usize) -> String {
+fn collect_heading_text(events: &[(Event<'_>, std::ops::Range<usize>)], i: &mut usize) -> String {
     let mut text = String::new();
     *i += 1; // skip Start(Heading)
     while *i < events.len() {
-        match &events[*i] {
+        match &events[*i].0 {
             Event::End(TagEnd::Heading(pulldown_cmark::HeadingLevel::H2)) => {
                 *i += 1;
                 break;
@@ -139,11 +207,11 @@ fn collect_heading_text(events: &[Event<'_>], i: &mut usize) -> String {
 }
 
 /// Collect the text of a task list item after the `TaskListMarker`, advancing `i`.
-fn collect_task_text(events: &[Event<'_>], i: &mut usize) -> String {
+fn collect_task_text(events: &[(Event<'_>, std::ops::Range<usize>)], i: &mut usize) -> String {
     let mut text = String::new();
     *i += 1; // skip TaskListMarker
     while *i < events.len() {
-        match &events[*i] {
+        match &events[*i].0 {
             Event::End(TagEnd::Item) => {
                 *i += 1;
                 break;
@@ -166,11 +234,11 @@ fn collect_task_text(events: &[Event<'_>], i: &mut usize) -> String {
 }
 
 /// Collect content of a fenced code block, advancing `i` past the block end.
-fn collect_code_block(events: &[Event<'_>], i: &mut usize) -> String {
+fn collect_code_block(events: &[(Event<'_>, std::ops::Range<usize>)], i: &mut usize) -> String {
     let mut code = String::new();
     *i += 1; // skip Start(CodeBlock)
     while *i < events.len() {
-        match &events[*i] {
+        match &events[*i].0 {
             Event::End(TagEnd::CodeBlock) => {
                 *i += 1;
                 break;
@@ -185,37 +253,6 @@ fn collect_code_block(events: &[Event<'_>], i: &mut usize) -> String {
         }
     }
     code
-}
-
-/// Collect text inside a paragraph, advancing `i` past the paragraph end.
-fn collect_paragraph_text(events: &[Event<'_>], i: &mut usize) -> String {
-    let mut text = String::new();
-    *i += 1; // skip Start(Paragraph)
-    while *i < events.len() {
-        match &events[*i] {
-            Event::End(TagEnd::Paragraph) => {
-                *i += 1;
-                break;
-            }
-            Event::Text(t) | Event::Code(t) => {
-                text.push_str(t);
-                *i += 1;
-            }
-            Event::SoftBreak => {
-                text.push(' ');
-                *i += 1;
-            }
-            Event::HardBreak => {
-                text.push('\n');
-                *i += 1;
-            }
-            // Inline elements (emphasis, strong, etc.) and other events — just advance.
-            _ => {
-                *i += 1;
-            }
-        }
-    }
-    text
 }
 
 /// Parse a YAML inputs block into a list of `InputDefinition`s.
@@ -496,5 +533,108 @@ Just some text.
         assert_eq!(template.metadata.id, "MIN-001");
         assert_eq!(template.steps.len(), 1);
         assert_eq!(template.steps[0].heading, "Only Step");
+    }
+
+    #[test]
+    fn test_prose_preserves_markdown() {
+        let source = r#"---
+id: MD-001
+title: "Markdown Test"
+version: "0.1"
+---
+
+## Step with rich prose
+
+Here is a paragraph with **bold** and *italic* text.
+
+- bullet point 1
+- bullet point 2
+
+### A sub-heading
+
+```python
+print("hello")
+```
+
+Some trailing text.
+
+```inputs
+- id: val
+  label: "Value"
+  type: measurement
+  unit: "V"
+```
+"#;
+        let template = parse_template(source).unwrap();
+        assert_eq!(template.steps.len(), 1);
+
+        let prose_parts: Vec<_> = template.steps[0]
+            .content
+            .iter()
+            .filter_map(|c| match c {
+                StepContent::Prose { text } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(prose_parts.len(), 1);
+        let prose = &prose_parts[0];
+        // All Markdown elements should be preserved as raw text.
+        assert!(prose.contains("**bold**"), "bold not preserved: {prose}");
+        assert!(prose.contains("*italic*"), "italic not preserved: {prose}");
+        assert!(
+            prose.contains("- bullet point 1"),
+            "bullet list not preserved: {prose}"
+        );
+        assert!(
+            prose.contains("### A sub-heading"),
+            "sub-heading not preserved: {prose}"
+        );
+        assert!(
+            prose.contains("```python"),
+            "code block not preserved: {prose}"
+        );
+        assert!(
+            prose.contains("Some trailing text."),
+            "trailing text not preserved: {prose}"
+        );
+    }
+
+    #[test]
+    fn test_prose_between_checkboxes_and_inputs() {
+        let source = r#"---
+id: MIX-001
+title: "Mixed Content"
+version: "0.1"
+---
+
+## Mixed Step
+
+- [ ] First check
+- [ ] Second check
+
+Some prose between checkboxes and inputs.
+
+```inputs
+- id: val
+  label: "Value"
+  type: measurement
+  unit: "V"
+```
+"#;
+        let template = parse_template(source).unwrap();
+        assert_eq!(template.steps.len(), 1);
+
+        let content = &template.steps[0].content;
+        // Should have: Checkbox, Checkbox, Prose, InputBlock
+        assert_eq!(content.len(), 4, "expected 4 content items: {content:?}");
+        assert!(matches!(content[0], StepContent::Checkbox { .. }));
+        assert!(matches!(content[1], StepContent::Checkbox { .. }));
+        assert!(matches!(content[2], StepContent::Prose { .. }));
+        assert!(matches!(content[3], StepContent::InputBlock { .. }));
+
+        if let StepContent::Prose { text } = &content[2] {
+            assert!(text.contains("Some prose between checkboxes and inputs"));
+        }
     }
 }
