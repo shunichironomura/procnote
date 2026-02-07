@@ -303,8 +303,12 @@
         opacity: 0.8;
     }
 
-    .step-card.pending {
-        opacity: 0.7;
+    .step-card.pending .step-header {
+        opacity: 0.5;
+    }
+
+    .step-card.pending .step-description {
+        opacity: 0.5;
     }
 
     .step-header {
