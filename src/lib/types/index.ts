@@ -1,6 +1,5 @@
 // Re-export generated types from ts-rs.
 // Regenerate with: cargo test --workspace export_bindings_
-export type { CheckboxState } from "./generated/CheckboxState";
 export type { CompletionStatus } from "./generated/CompletionStatus";
 export type { Equipment } from "./generated/Equipment";
 export type { EventHistoryEntry } from "./generated/EventHistoryEntry";
@@ -8,6 +7,7 @@ export type { ExecutionAction } from "./generated/ExecutionAction";
 export type { ExecutionSummary } from "./generated/ExecutionSummary";
 export type { ExpectedValue } from "./generated/ExpectedValue";
 export type { InputDefinition } from "./generated/InputDefinition";
+export type { InputDefinitionSummary } from "./generated/InputDefinitionSummary";
 export type { InputState } from "./generated/InputState";
 export type { InputType } from "./generated/InputType";
 export type { NoteState } from "./generated/NoteState";
@@ -15,5 +15,6 @@ export type { ProcedureMetadata } from "./generated/ProcedureMetadata";
 export type { ProcedureTemplate } from "./generated/ProcedureTemplate";
 export type { Step } from "./generated/Step";
 export type { StepContent } from "./generated/StepContent";
+export type { StepContentSummary } from "./generated/StepContentSummary";
 export type { StepSummary } from "./generated/StepSummary";
 export type { TemplateSummary } from "./generated/TemplateSummary";

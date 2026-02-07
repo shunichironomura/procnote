@@ -143,59 +143,49 @@
         <span class="step-status-badge">{stepSummary.status}</span>
     </div>
 
-    {#if stepSummary.description}
-        <div class="step-description">{@html renderMarkdown(stepSummary.description)}</div>
-    {/if}
-
-    {#if stepSummary.checkboxes.length > 0}
-        <div class="step-section">
-            {#each stepSummary.checkboxes as checkbox}
-                <CheckboxItem
-                    {checkbox}
-                    disabled={!isInteractable}
-                    ontoggle={toggleCheckbox}
-                />
-            {/each}
-        </div>
-    {/if}
-
-    {#if stepSummary.input_definitions.length > 0}
-        <div class="step-section">
-            {#each stepSummary.input_definitions as defn}
-                {@const inputEvent = revertibleInputEvents.get(defn.label)}
-                {@const revertHandler = inputEvent && executionActive
-                    ? () =>
-                          onaction({
-                              action: "revert_event",
-                              event_index: inputEvent.index,
-                              reason: "Reverted by operator",
-                          })
-                    : undefined}
-                {#if defn.type === "attachment"}
-                    <AttachmentField
-                        definition={defn}
-                        recorded={stepSummary.inputs.find(
-                            (i) => i.label === defn.label,
-                        )}
-                        disabled={!isInteractable}
-                        onattach={(filename, path, contentType) =>
-                            attachFile(defn.label, filename, path, contentType)}
-                        onrevert={revertHandler}
-                    />
-                {:else}
-                    <InputField
-                        definition={defn}
-                        recorded={stepSummary.inputs.find(
-                            (i) => i.label === defn.label,
-                        )}
-                        disabled={!isInteractable}
-                        onrecord={recordInput}
-                        onrevert={revertHandler}
-                    />
-                {/if}
-            {/each}
-        </div>
-    {/if}
+    {#each stepSummary.content as block}
+        {#if block.type === "Prose"}
+            <div class="step-description">{@html renderMarkdown(block.text)}</div>
+        {:else if block.type === "Checkbox"}
+            <CheckboxItem
+                checkbox={block}
+                disabled={!isInteractable}
+                ontoggle={toggleCheckbox}
+            />
+        {:else if block.type === "InputBlock"}
+            <div class="step-section">
+                {#each block.inputs as input}
+                    {@const inputEvent = revertibleInputEvents.get(input.definition.label)}
+                    {@const revertHandler = inputEvent && executionActive
+                        ? () =>
+                              onaction({
+                                  action: "revert_event",
+                                  event_index: inputEvent.index,
+                                  reason: "Reverted by operator",
+                              })
+                        : undefined}
+                    {#if input.definition.type === "attachment"}
+                        <AttachmentField
+                            definition={input.definition}
+                            recorded={input.recorded}
+                            disabled={!isInteractable}
+                            onattach={(filename, path, contentType) =>
+                                attachFile(input.definition.label, filename, path, contentType)}
+                            onrevert={revertHandler}
+                        />
+                    {:else}
+                        <InputField
+                            definition={input.definition}
+                            recorded={input.recorded}
+                            disabled={!isInteractable}
+                            onrecord={recordInput}
+                            onrevert={revertHandler}
+                        />
+                    {/if}
+                {/each}
+            </div>
+        {/if}
+    {/each}
 
     <div class="step-section">
         <NoteEditor

@@ -1,4 +1,6 @@
 <script lang="ts">
+    import type { StepContent } from "$lib/types";
+
     let {
         stepHeadings,
         onconfirm,
@@ -7,7 +9,7 @@
         stepHeadings: string[];
         onconfirm: (
             heading: string,
-            description?: string,
+            content: StepContent[],
             afterStep?: string,
         ) => void;
         oncancel: () => void;
@@ -19,9 +21,12 @@
 
     function submit() {
         if (!heading.trim()) return;
+        const content: StepContent[] = description.trim()
+            ? [{ type: "Prose", text: description.trim() }]
+            : [];
         onconfirm(
             heading.trim(),
-            description.trim() || undefined,
+            content,
             afterStep || undefined,
         );
     }
