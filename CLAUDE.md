@@ -7,6 +7,54 @@
 - Don't rely on regex for determining something. Implement proper data and logic structures instead.
   - Using regex is a code smell in this project where backward compatibility is not a concern.
 
+## Architecture
+
+- Event-sourced Tauri 2 desktop app: Rust backend + Svelte 5 frontend.
+- Three layers with strict dependency direction:
+  1. **`crates/procnote-core/`** — Pure Rust domain logic. No Tauri dependency. Contains event types, execution state machine, and template parser.
+  2. **`src-tauri/`** — Tauri shell. Bridges core to desktop via IPC commands. Owns serialization DTOs (`ExecutionSummary`, `StepSummary`, etc.) and filesystem I/O.
+  3. **`src/`** — SvelteKit + Svelte 5 frontend. Uses runes (`$state`, `$derived`, `$props`), not stores.
+
+### Core domain (`procnote-core`)
+
+- `Event` enum (internally tagged `"type"` for JSON) — 13 variants covering execution lifecycle, step transitions, data capture, and revert markers.
+- `ExecutionState::apply()` is the single source of truth for state mutations.
+- `ExecutionState::from_events()` reconstructs state by replaying the event log (two passes: collect reverted indices, then apply non-reverted events).
+- `Revertibility` enum + exhaustive match enforces compile-time classification of every event variant.
+- `ExecutionState::revert_event()` performs trial replay to validate that reverting produces a valid state before committing.
+- Procedure templates are Markdown files with YAML frontmatter, parsed by `template/parser.rs` using `pulldown-cmark`.
+
+### Tauri shell (`src-tauri`)
+
+- `AppState` holds `procedures_dir` and `executions_dir` paths.
+- `summarize()` converts `ExecutionState` + raw events into `ExecutionSummary` DTO for the frontend, building timestamp maps from non-reverted events.
+- Every `record_action` call re-reads and replays the full event log from disk (no in-memory cache, by design).
+- Attachments are stored as `attachments/{sha256_7}-{filename}` inside the execution directory.
+
+### Frontend (`src/`)
+
+- `executionStore` (in `lib/stores/execution.svelte.ts`) is a Svelte 5 runes-based reactive store wrapping `ExecutionSummary`.
+- TypeScript types in `lib/types/generated/` are auto-generated from Rust via `ts-rs`. Regenerate with `cargo test --workspace export_bindings_`. CI enforces they stay in sync.
+- `chrono` is a dependency of `procnote-core` but NOT of `procnote-tauri`; timestamps cross the IPC boundary as ISO 8601 strings.
+
+### Execution storage layout
+
+```text
+.executions/{YYYYMMDD}T{HHMMSS}-{uuid_8}/
+├── events.jsonl        # Append-only event log
+├── template.md         # Snapshot of procedure template at execution start
+└── attachments/
+    └── {sha256_7}-{filename}
+```
+
+## Development
+
+- `just dev` — runs the Tauri dev server (passes `--procedures-dir` and `--executions-dir` explicitly).
+- `cargo test --workspace` — runs all Rust tests (46+ tests across core).
+- `npx svelte-check` — TypeScript type checking for frontend.
+- `biome` — frontend linting/formatting.
+- Pre-commit hooks are configured.
+
 ## Misc
 
 - The discussions logs can be found in the `.local` directory. Note that some of the documents are ideas that have been discarded later.
