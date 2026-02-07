@@ -4,4 +4,8 @@ export type InputState = { label: string, value: string, unit?: string,
 /**
  * ISO 8601 timestamp of when the input was recorded.
  */
-at?: string, };
+at?: string, 
+/**
+ * Full SHA256 hash of the attached file, if this is an attachment.
+ */
+sha256?: string, };

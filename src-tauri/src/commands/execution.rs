@@ -90,6 +90,10 @@ pub struct InputState {
     /// ISO 8601 timestamp of when the input was recorded.
     #[ts(optional)]
     pub at: Option<String>,
+    /// Full SHA256 hash of the attached file, if this is an attachment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub sha256: Option<String>,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -153,6 +157,8 @@ fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSumma
     let mut checkbox_at: HashMap<(&str, &str), String> = HashMap::new();
     // (step_heading, input_label) -> most recent record timestamp
     let mut input_at: HashMap<(&str, &str), String> = HashMap::new();
+    // (step_heading, label) -> full SHA256 hash for attachments
+    let mut attachment_sha256: HashMap<(&str, &str), String> = HashMap::new();
     // (step_heading, note_index_in_step) -> add timestamp
     // We count notes per step to match the index in StepState.notes.
     let mut note_at: HashMap<(&str, usize), String> = HashMap::new();
@@ -193,14 +199,18 @@ fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSumma
                 step_heading,
                 label,
                 ..
+            } => {
+                input_at.insert((step_heading, label), at.to_rfc3339());
             }
-            | Event::AttachmentAdded {
+            Event::AttachmentAdded {
                 at,
                 step_heading,
                 label,
+                sha256,
                 ..
             } => {
                 input_at.insert((step_heading, label), at.to_rfc3339());
+                attachment_sha256.insert((step_heading, label), sha256.clone());
             }
             Event::NoteAdded {
                 at,
@@ -237,6 +247,9 @@ fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSumma
                         value: input.value.clone(),
                         unit: input.unit.clone(),
                         at: input_at
+                            .get(&(heading.as_str(), input.label.as_str()))
+                            .cloned(),
+                        sha256: attachment_sha256
                             .get(&(heading.as_str(), input.label.as_str()))
                             .cloned(),
                     })

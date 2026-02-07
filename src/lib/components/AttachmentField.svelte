@@ -57,6 +57,9 @@
     <div class="input-row">
         {#if isRecorded}
             <span class="filename">{recorded?.value}</span>
+            {#if recorded?.sha256}
+                <span class="hash">{recorded.sha256.slice(0, 7)}</span>
+            {/if}
             <span class="recorded-badge">Recorded</span>
             {#if recorded?.at}
                 <span class="timestamp">{formatTimestamp(recorded.at)}</span>
@@ -162,6 +165,13 @@
     .btn-clear:disabled {
         opacity: 0.4;
         cursor: not-allowed;
+    }
+
+    .hash {
+        font-size: 11px;
+        font-family: monospace;
+        color: #888;
+        white-space: nowrap;
     }
 
     .recorded-badge {
