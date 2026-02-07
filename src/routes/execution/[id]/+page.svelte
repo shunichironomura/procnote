@@ -31,13 +31,24 @@
 
     let stepHeadings = $derived(summary?.steps.map((s) => s.heading) ?? []);
 
+    // Find the revertible execution-level finish event (completed or aborted).
+    let revertibleFinishEvent = $derived(
+        summary?.event_history.find(
+            (e) =>
+                e.revertible &&
+                !e.reverted &&
+                (e.event_type === "execution_completed" ||
+                    e.event_type === "execution_aborted"),
+        ),
+    );
+
     // Event types that are scoped to a specific step.
     const stepScopedEventTypes = new Set([
         "step_started",
         "step_completed",
         "step_skipped",
         "input_recorded",
-        "checkbox_toggled",
+        "note_added",
     ]);
 
     // Build a map of step_heading -> revertible events for that step.
@@ -173,12 +184,27 @@
                 class:fail={summary.status === "fail"}
                 class:aborted={summary.status === "aborted"}
             >
-                Execution {summary.status === "pass"
-                    ? "passed"
-                    : summary.status === "fail"
-                      ? "failed"
-                      : "aborted"}
-                &mdash; {completedSteps}/{totalSteps} steps completed
+                <span>
+                    Execution {summary.status === "pass"
+                        ? "passed"
+                        : summary.status === "fail"
+                          ? "failed"
+                          : "aborted"}
+                    &mdash; {completedSteps}/{totalSteps} steps completed
+                </span>
+                {#if revertibleFinishEvent}
+                    <button
+                        class="btn btn-undo"
+                        onclick={() =>
+                            handleAction({
+                                action: "revert_event",
+                                event_index: revertibleFinishEvent.index,
+                                reason: "Reverted by operator",
+                            })}
+                    >
+                        Reopen Execution
+                    </button>
+                {/if}
             </div>
         {/if}
 
@@ -400,6 +426,10 @@
     }
 
     .finish-banner {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
         padding: 12px 16px;
         border-radius: 6px;
         font-weight: 600;
@@ -470,6 +500,16 @@
 
     .btn-danger:hover:not(:disabled) {
         background: #b71c1c;
+    }
+
+    .btn-undo {
+        background: #fff;
+        color: #6a1b9a;
+        border-color: #ce93d8;
+    }
+
+    .btn-undo:hover {
+        background: #f3e5f5;
     }
 
     /* Modal */

@@ -53,6 +53,12 @@
         return map;
     });
 
+    // Revertible note_added events for this step, in order.
+    // Notes in StepSummary are ordered by insertion, matching the event order.
+    let revertibleNoteEvents = $derived(
+        revertibleEvents.filter((e) => e.event_type === "note_added"),
+    );
+
     function startStep() {
         onaction({ action: "start_step", step_heading: stepSummary.heading });
     }
@@ -161,6 +167,18 @@
             notes={stepSummary.notes}
             disabled={!isInteractable}
             onadd={addNote}
+            onrevert={executionActive && revertibleNoteEvents.length > 0
+                ? (noteIndex) => {
+                      const event = revertibleNoteEvents[noteIndex];
+                      if (event) {
+                          onaction({
+                              action: "revert_event",
+                              event_index: event.index,
+                              reason: "Reverted by operator",
+                          });
+                      }
+                  }
+                : undefined}
         />
     </div>
 

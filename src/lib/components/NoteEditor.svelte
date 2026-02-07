@@ -3,10 +3,12 @@
         notes,
         disabled = false,
         onadd,
+        onrevert,
     }: {
         notes: string[];
         disabled?: boolean;
         onadd: (text: string) => void;
+        onrevert?: (noteIndex: number) => void;
     } = $props();
 
     let noteText = $state("");
@@ -21,8 +23,13 @@
 <div class="note-editor">
     {#if notes.length > 0}
         <ul class="note-list">
-            {#each notes as note}
-                <li class="note-item">{note}</li>
+            {#each notes as note, i}
+                <li class="note-item">
+                    <span class="note-text">{note}</span>
+                    {#if onrevert}
+                        <button class="btn-undo" onclick={() => onrevert(i)}>Undo</button>
+                    {/if}
+                </li>
             {/each}
         </ul>
     {/if}
@@ -55,6 +62,9 @@
     }
 
     .note-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
         padding: 4px 0;
         font-size: 13px;
         color: #555;
@@ -63,6 +73,28 @@
 
     .note-item:last-child {
         border-bottom: none;
+    }
+
+    .note-text {
+        flex: 1;
+    }
+
+    .btn-undo {
+        padding: 2px 6px;
+        background: #fff;
+        color: #6a1b9a;
+        border: 1px solid #ce93d8;
+        border-radius: 4px;
+        font: inherit;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    .btn-undo:hover {
+        background: #f3e5f5;
     }
 
     .note-input {
