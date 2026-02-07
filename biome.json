@@ -9,6 +9,7 @@
     "includes": [
       "**",
       "!**/*.svelte",
+      "!src/lib/types/generated",
       "!!.svelte-kit",
       "!!build",
       "!!target",
