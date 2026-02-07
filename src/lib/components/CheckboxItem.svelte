@@ -1,5 +1,6 @@
 <script lang="ts">
     import type { CheckboxState } from "$lib/types";
+    import { formatTimestamp } from "$lib/utils/format";
 
     let {
         checkbox,
@@ -20,6 +21,9 @@
         onchange={() => ontoggle(checkbox.text, !checkbox.checked)}
     />
     <span class="checkbox-text">{checkbox.text}</span>
+    {#if checkbox.at}
+        <span class="timestamp">{formatTimestamp(checkbox.at)}</span>
+    {/if}
 </label>
 
 <style>
@@ -49,5 +53,12 @@
     .checked .checkbox-text {
         text-decoration: line-through;
         color: #888;
+    }
+
+    .timestamp {
+        font-size: 11px;
+        color: #999;
+        white-space: nowrap;
+        flex-shrink: 0;
     }
 </style>

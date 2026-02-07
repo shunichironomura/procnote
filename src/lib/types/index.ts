@@ -75,21 +75,29 @@ export interface StepSummary {
   heading: string;
   description?: string;
   status: string;
+  status_at?: string;
   checkboxes: CheckboxState[];
   input_definitions: InputDefinition[];
   inputs: InputState[];
-  notes: string[];
+  notes: NoteState[];
 }
 
 export interface CheckboxState {
   text: string;
   checked: boolean;
+  at?: string;
 }
 
 export interface InputState {
   label: string;
   value: string;
   unit?: string;
+  at?: string;
+}
+
+export interface NoteState {
+  text: string;
+  at?: string;
 }
 
 // -- Action types (sent to backend) --

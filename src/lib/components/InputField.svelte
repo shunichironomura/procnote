@@ -6,14 +6,12 @@
         definition,
         recorded,
         disabled = false,
-        timestamp,
         onrecord,
         onrevert,
     }: {
         definition: InputDefinition;
         recorded?: InputState;
         disabled?: boolean;
-        timestamp?: string;
         onrecord: (label: string, value: string, unit?: string) => void;
         onrevert?: () => void;
     } = $props();
@@ -90,8 +88,8 @@
         {/if}
         {#if isRecorded}
             <span class="recorded-badge">Recorded</span>
-            {#if timestamp}
-                <span class="timestamp">{formatTimestamp(timestamp)}</span>
+            {#if recorded?.at}
+                <span class="timestamp">{formatTimestamp(recorded.at)}</span>
             {/if}
             {#if onrevert}
                 <button class="btn-delete" title="Delete recorded value" onclick={onrevert}>

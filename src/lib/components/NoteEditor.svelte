@@ -1,16 +1,15 @@
 <script lang="ts">
+    import type { NoteState } from "$lib/types";
     import { formatTimestamp } from "$lib/utils/format";
 
     let {
         notes,
         disabled = false,
-        timestamps = [],
         onadd,
         onrevert,
     }: {
-        notes: string[];
+        notes: NoteState[];
         disabled?: boolean;
-        timestamps?: string[];
         onadd: (text: string) => void;
         onrevert?: (noteIndex: number) => void;
     } = $props();
@@ -29,9 +28,9 @@
         <ul class="note-list">
             {#each notes as note, i}
                 <li class="note-item">
-                    <span class="note-text">{note}</span>
-                    {#if timestamps[i]}
-                        <span class="timestamp">{formatTimestamp(timestamps[i])}</span>
+                    <span class="note-text">{note.text}</span>
+                    {#if note.at}
+                        <span class="timestamp">{formatTimestamp(note.at)}</span>
                     {/if}
                     {#if onrevert}
                         <button class="btn-delete" title="Delete note" onclick={() => onrevert(i)}>

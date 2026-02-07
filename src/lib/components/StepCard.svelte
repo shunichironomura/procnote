@@ -9,13 +9,11 @@
         stepSummary,
         executionActive = false,
         revertibleEvents = [],
-        allEvents = [],
         onaction,
     }: {
         stepSummary: StepSummary;
         executionActive?: boolean;
         revertibleEvents?: EventHistoryEntry[];
-        allEvents?: EventHistoryEntry[];
         onaction: (action: Record<string, unknown>) => void;
     } = $props();
 
@@ -60,38 +58,6 @@
     // Notes in StepSummary are ordered by insertion, matching the event order.
     let revertibleNoteEvents = $derived(
         revertibleEvents.filter((e) => e.event_type === "note_added"),
-    );
-
-    // Timestamp of the most recent step status event (started/completed/skipped).
-    let statusTimestamp = $derived.by(() => {
-        const statusEvent = allEvents
-            .filter(
-                (e) =>
-                    e.event_type === "step_started" ||
-                    e.event_type === "step_completed" ||
-                    e.event_type === "step_skipped",
-            )
-            .at(-1);
-        return statusEvent?.at;
-    });
-
-    // Timestamps for recorded inputs, keyed by label.
-    let inputTimestamps = $derived.by(() => {
-        const map = new Map<string, string>();
-        for (const e of allEvents) {
-            if (e.event_type === "input_recorded") {
-                const match = e.description.match(/^Recorded (.+?) = /);
-                if (match) {
-                    map.set(match[1], e.at);
-                }
-            }
-        }
-        return map;
-    });
-
-    // Timestamps for notes, in insertion order (matching StepSummary.notes).
-    let noteTimestamps = $derived(
-        allEvents.filter((e) => e.event_type === "note_added").map((e) => e.at),
     );
 
     function startStep() {
@@ -154,8 +120,8 @@
     <div class="step-header">
         <div class="step-status-indicator"></div>
         <h3 class="step-heading">{stepSummary.heading}</h3>
-        {#if statusTimestamp}
-            <span class="timestamp">{formatTimestamp(statusTimestamp)}</span>
+        {#if stepSummary.status_at}
+            <span class="timestamp">{formatTimestamp(stepSummary.status_at)}</span>
         {/if}
         <span class="step-status-badge">{stepSummary.status}</span>
     </div>
@@ -186,7 +152,6 @@
                         (i) => i.label === defn.label,
                     )}
                     disabled={!isInteractable}
-                    timestamp={inputTimestamps.get(defn.label)}
                     onrecord={recordInput}
                     onrevert={inputEvent && executionActive
                         ? () =>
@@ -205,7 +170,6 @@
         <NoteEditor
             notes={stepSummary.notes}
             disabled={!isInteractable}
-            timestamps={noteTimestamps}
             onadd={addNote}
             onrevert={executionActive && revertibleNoteEvents.length > 0
                 ? (noteIndex) => {

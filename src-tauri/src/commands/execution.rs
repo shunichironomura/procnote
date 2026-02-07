@@ -36,16 +36,20 @@ pub struct StepSummary {
     pub heading: String,
     pub description: Option<String>,
     pub status: String,
+    /// ISO 8601 timestamp of the most recent status change (started/completed/skipped).
+    pub status_at: Option<String>,
     pub checkboxes: Vec<CheckboxState>,
     pub input_definitions: Vec<InputDefinition>,
     pub inputs: Vec<InputState>,
-    pub notes: Vec<String>,
+    pub notes: Vec<NoteState>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct CheckboxState {
     pub text: String,
     pub checked: bool,
+    /// ISO 8601 timestamp of the last toggle, if any.
+    pub at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -53,6 +57,15 @@ pub struct InputState {
     pub label: String,
     pub value: String,
     pub unit: Option<String>,
+    /// ISO 8601 timestamp of when the input was recorded.
+    pub at: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NoteState {
+    pub text: String,
+    /// ISO 8601 timestamp of when the note was added.
+    pub at: Option<String>,
 }
 
 fn status_string(status: &procnote_core::execution::ExecutionStatus) -> String {
@@ -77,6 +90,80 @@ fn step_status_string(status: &StepStatus) -> String {
 }
 
 fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSummary {
+    use std::collections::{HashMap, HashSet};
+
+    let events_slice = events.unwrap_or(&[]);
+
+    // Collect reverted event indices so we can skip them.
+    let reverted_indices: HashSet<usize> = events_slice
+        .iter()
+        .filter_map(|e| match e {
+            Event::EventReverted {
+                reverted_event_index,
+                ..
+            } => Some(*reverted_event_index),
+            _ => None,
+        })
+        .collect();
+
+    // Build timestamp lookup maps from non-reverted events.
+    // Store as RFC3339 strings to avoid depending on chrono in this crate.
+    // step_heading -> most recent status-change timestamp
+    let mut step_status_at: HashMap<&str, String> = HashMap::new();
+    // (step_heading, checkbox_text) -> most recent toggle timestamp
+    let mut checkbox_at: HashMap<(&str, &str), String> = HashMap::new();
+    // (step_heading, input_label) -> most recent record timestamp
+    let mut input_at: HashMap<(&str, &str), String> = HashMap::new();
+    // (step_heading, note_index_in_step) -> add timestamp
+    // We count notes per step to match the index in StepState.notes.
+    let mut note_at: HashMap<(&str, usize), String> = HashMap::new();
+    let mut note_counts: HashMap<&str, usize> = HashMap::new();
+
+    for (index, event) in events_slice.iter().enumerate() {
+        if reverted_indices.contains(&index) {
+            continue;
+        }
+        match event {
+            Event::StepStarted {
+                at, step_heading, ..
+            }
+            | Event::StepCompleted {
+                at, step_heading, ..
+            }
+            | Event::StepSkipped {
+                at, step_heading, ..
+            } => {
+                step_status_at.insert(step_heading, at.to_rfc3339());
+            }
+            Event::CheckboxToggled {
+                at,
+                step_heading,
+                text,
+                ..
+            } => {
+                checkbox_at.insert((step_heading, text), at.to_rfc3339());
+            }
+            Event::InputRecorded {
+                at,
+                step_heading,
+                label,
+                ..
+            } => {
+                input_at.insert((step_heading, label), at.to_rfc3339());
+            }
+            Event::NoteAdded {
+                at,
+                step_heading: Some(heading),
+                ..
+            } => {
+                let count = note_counts.entry(heading).or_insert(0);
+                note_at.insert((heading, *count), at.to_rfc3339());
+                *count += 1;
+            }
+            _ => {}
+        }
+    }
+
     let steps = state
         .step_order
         .iter()
@@ -88,6 +175,7 @@ fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSumma
                     .map(|(text, checked)| CheckboxState {
                         text: text.clone(),
                         checked: *checked,
+                        at: checkbox_at.get(&(heading.as_str(), text.as_str())).cloned(),
                     })
                     .collect();
                 let inputs = step
@@ -97,22 +185,35 @@ fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSumma
                         label: input.label.clone(),
                         value: input.value.clone(),
                         unit: input.unit.clone(),
+                        at: input_at
+                            .get(&(heading.as_str(), input.label.as_str()))
+                            .cloned(),
+                    })
+                    .collect();
+                let notes = step
+                    .notes
+                    .iter()
+                    .enumerate()
+                    .map(|(i, text)| NoteState {
+                        text: text.clone(),
+                        at: note_at.get(&(heading.as_str(), i)).cloned(),
                     })
                     .collect();
                 StepSummary {
                     heading: step.heading.clone(),
                     description: step.description.clone(),
                     status: step_status_string(&step.status),
+                    status_at: step_status_at.get(heading.as_str()).cloned(),
                     checkboxes,
                     input_definitions: step.input_definitions.clone(),
                     inputs,
-                    notes: step.notes.clone(),
+                    notes,
                 }
             })
         })
         .collect();
 
-    let event_history = build_event_history(events.unwrap_or(&[]));
+    let event_history = build_event_history(events_slice);
 
     ExecutionSummary {
         execution_id: state.execution_id.unwrap_or_default(),

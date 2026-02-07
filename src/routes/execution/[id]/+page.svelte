@@ -85,25 +85,6 @@
         return map;
     });
 
-    // Build a map of step_heading -> all non-reverted events for that step (for timestamps).
-    let allEventsByStep = $derived.by(() => {
-        const map = new Map<string, EventHistoryEntry[]>();
-        if (!summary) return map;
-
-        for (const entry of summary.event_history) {
-            if (!entry.reverted && stepScopedEventTypes.has(entry.event_type)) {
-                for (const heading of stepHeadings) {
-                    if (entry.description.includes(heading)) {
-                        if (!map.has(heading)) map.set(heading, []);
-                        map.get(heading)!.push(entry);
-                        break;
-                    }
-                }
-            }
-        }
-        return map;
-    });
-
     async function handleAction(action: Record<string, unknown>) {
         await executionStore.act(action as ExecutionAction);
     }
@@ -247,7 +228,6 @@
                     {stepSummary}
                     executionActive={isActive ?? false}
                     revertibleEvents={revertibleEventsByStep.get(stepSummary.heading) ?? []}
-                    allEvents={allEventsByStep.get(stepSummary.heading) ?? []}
                     onaction={handleAction}
                 />
             {/each}
