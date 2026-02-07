@@ -3,7 +3,7 @@
     import { onMount } from "svelte";
     import { goto } from "$app/navigation";
     import { executionStore } from "$lib/stores/execution.svelte";
-    import type { ExecutionAction, EventHistoryEntry } from "$lib/types";
+    import type { ExecutionAction, EventHistoryEntry, StepContent } from "$lib/types";
     import { formatTimestamp } from "$lib/utils/format";
     import StepCard from "$lib/components/StepCard.svelte";
     import AddStepDialog from "$lib/components/AddStepDialog.svelte";
@@ -76,13 +76,13 @@
 
     async function addStep(
         heading: string,
-        description?: string,
+        content: StepContent[],
         afterStep?: string,
     ) {
         await executionStore.act({
             action: "add_step",
             heading,
-            description,
+            content,
             after_step: afterStep,
         });
         showAddStepDialog = false;

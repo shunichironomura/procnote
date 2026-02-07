@@ -10,7 +10,7 @@ use procnote_core::event::types::{CompletionStatus, Event, ExecutionId, Revertib
 use procnote_core::event::{append_event, read_events};
 use procnote_core::execution::{ExecutionState, StepStatus};
 use procnote_core::template::parse_template;
-use procnote_core::template::types::InputDefinition;
+use procnote_core::template::types::{InputDefinition, StepContent};
 
 /// Serializable execution state summary for the frontend.
 #[derive(Debug, Serialize, TS)]
@@ -60,26 +60,42 @@ pub struct EventHistoryEntry {
 #[ts(export)]
 pub struct StepSummary {
     pub heading: String,
-    #[ts(optional)]
-    pub description: Option<String>,
     pub status: String,
     /// ISO 8601 timestamp of the most recent status change (started/completed/skipped).
     #[ts(optional)]
     pub status_at: Option<String>,
-    pub checkboxes: Vec<CheckboxState>,
-    pub input_definitions: Vec<InputDefinition>,
-    pub inputs: Vec<InputState>,
+    /// Ordered content items preserving template source order.
+    pub content: Vec<StepContentSummary>,
     pub notes: Vec<NoteState>,
 }
 
+/// A single content item within a step, merging template structure with runtime state.
 #[derive(Debug, Serialize, TS)]
 #[ts(export)]
-pub struct CheckboxState {
-    pub text: String,
-    pub checked: bool,
-    /// ISO 8601 timestamp of the last toggle, if any.
+#[serde(tag = "type")]
+pub enum StepContentSummary {
+    Prose {
+        text: String,
+    },
+    Checkbox {
+        text: String,
+        checked: bool,
+        /// ISO 8601 timestamp of the last toggle, if any.
+        #[ts(optional)]
+        at: Option<String>,
+    },
+    InputBlock {
+        inputs: Vec<InputDefinitionSummary>,
+    },
+}
+
+/// An input definition paired with its optional recorded value.
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
+pub struct InputDefinitionSummary {
+    pub definition: InputDefinition,
     #[ts(optional)]
-    pub at: Option<String>,
+    pub recorded: Option<InputState>,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -236,28 +252,41 @@ fn summarize(
         .iter()
         .filter_map(|heading| {
             state.steps.get(heading).map(|step| {
-                let checkboxes = step
-                    .checkboxes
+                let content = step
+                    .content
                     .iter()
-                    .map(|(text, checked)| CheckboxState {
-                        text: text.clone(),
-                        checked: *checked,
-                        at: checkbox_at.get(&(heading.as_str(), text.as_str())).cloned(),
-                    })
-                    .collect();
-                let inputs = step
-                    .inputs
-                    .values()
-                    .map(|input| InputState {
-                        label: input.label.clone(),
-                        value: input.value.clone(),
-                        unit: input.unit.clone(),
-                        at: input_at
-                            .get(&(heading.as_str(), input.label.as_str()))
-                            .cloned(),
-                        sha256: attachment_sha256
-                            .get(&(heading.as_str(), input.label.as_str()))
-                            .cloned(),
+                    .map(|item| match item {
+                        StepContent::Prose { text } => {
+                            StepContentSummary::Prose { text: text.clone() }
+                        }
+                        StepContent::Checkbox { text, checked } => StepContentSummary::Checkbox {
+                            text: text.clone(),
+                            checked: *checked,
+                            at: checkbox_at.get(&(heading.as_str(), text.as_str())).cloned(),
+                        },
+                        StepContent::InputBlock { inputs } => StepContentSummary::InputBlock {
+                            inputs: inputs
+                                .iter()
+                                .map(|def| {
+                                    let recorded =
+                                        step.inputs.get(&def.label).map(|input| InputState {
+                                            label: input.label.clone(),
+                                            value: input.value.clone(),
+                                            unit: input.unit.clone(),
+                                            at: input_at
+                                                .get(&(heading.as_str(), input.label.as_str()))
+                                                .cloned(),
+                                            sha256: attachment_sha256
+                                                .get(&(heading.as_str(), input.label.as_str()))
+                                                .cloned(),
+                                        });
+                                    InputDefinitionSummary {
+                                        definition: def.clone(),
+                                        recorded,
+                                    }
+                                })
+                                .collect(),
+                        },
                     })
                     .collect();
                 let notes = step
@@ -271,12 +300,9 @@ fn summarize(
                     .collect();
                 StepSummary {
                     heading: step.heading.clone(),
-                    description: step.description.clone(),
                     status: step_status_string(&step.status),
                     status_at: step_status_at.get(heading.as_str()).cloned(),
-                    checkboxes,
-                    input_definitions: step.input_definitions.clone(),
-                    inputs,
+                    content,
                     notes,
                 }
             })
@@ -526,8 +552,8 @@ pub enum ExecutionAction {
     },
     AddStep {
         heading: String,
-        #[ts(optional)]
-        description: Option<String>,
+        #[serde(default)]
+        content: Vec<StepContent>,
         #[ts(optional)]
         after_step: Option<String>,
     },
@@ -621,10 +647,10 @@ pub fn record_action(
             .map_err(|e| e.to_string())?,
         ExecutionAction::AddStep {
             heading,
-            description,
+            content,
             after_step,
         } => exec_state
-            .add_step(&heading, description.as_deref(), after_step.as_deref())
+            .add_step(&heading, content, after_step.as_deref())
             .map_err(|e| e.to_string())?,
         ExecutionAction::AddAttachment {
             step_heading,

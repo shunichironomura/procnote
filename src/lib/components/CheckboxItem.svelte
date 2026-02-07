@@ -1,13 +1,15 @@
 <script lang="ts">
-    import type { CheckboxState } from "$lib/types";
+    import type { StepContentSummary } from "$lib/types";
     import { formatTimestamp } from "$lib/utils/format";
+
+    type CheckboxContent = Extract<StepContentSummary, { type: "Checkbox" }>;
 
     let {
         checkbox,
         disabled = false,
         ontoggle,
     }: {
-        checkbox: CheckboxState;
+        checkbox: CheckboxContent;
         disabled?: boolean;
         ontoggle: (text: string, checked: boolean) => void;
     } = $props();

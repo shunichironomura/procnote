@@ -54,6 +54,7 @@ pub fn read_events(path: &Path) -> Result<Vec<Event>, EventLogError> {
 mod tests {
     use super::*;
     use crate::event::types::{CompletionStatus, ExecutionId};
+    use crate::template::types::StepContent;
     use chrono::Utc;
     use uuid::Uuid;
 
@@ -210,10 +211,10 @@ mod tests {
                 at: now,
                 execution_id: id,
                 heading: "New Step".to_string(),
-                description: Some("Added during execution".to_string()),
+                content: vec![StepContent::Prose {
+                    text: "Added during execution".to_string(),
+                }],
                 after_step: Some("Preconditions".to_string()),
-                checkboxes: vec![],
-                inputs: vec![],
             },
             Event::StepStarted {
                 at: now,
