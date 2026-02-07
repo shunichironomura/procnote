@@ -1,0 +1,42 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: [
+    "config:recommended",
+  ],
+  lockFileMaintenance: {
+    enabled: true,
+  },
+  labels: [
+    "dependencies",
+  ],
+  packageRules: [
+    {
+      matchCategories: [
+        "ci",
+      ],
+      addLabels: [
+        "ci",
+      ],
+    },
+    {
+      matchManagers: [
+        "npm",
+      ],
+      matchDepTypes: [
+        "devDependencies",
+      ],
+      addLabels: [
+        "dev dependencies",
+      ],
+      automerge: true,
+    },
+    {
+      matchManagers: [
+        "cargo",
+      ],
+      addLabels: [
+        "rust",
+      ],
+    },
+  ],
+}
