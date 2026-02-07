@@ -44,6 +44,10 @@ fn split_frontmatter(source: &str) -> Result<(&str, &str), ParseError> {
 }
 
 /// Parse the Markdown body into a list of steps, split on `## ` headings.
+#[expect(
+    clippy::too_many_lines,
+    reason = "event-driven parser is inherently a large match loop"
+)]
 fn parse_body(body: &str) -> Result<Vec<Step>, ParseError> {
     use std::ops::Range;
 
@@ -75,9 +79,14 @@ fn parse_body(body: &str) -> Result<Vec<Step>, ParseError> {
     let mut current_content: Vec<StepContent> = Vec::new();
     // Track the start of the current prose region in `body`.
     let mut prose_start: Option<usize> = None;
-    // Depth counter for task lists. While > 0, we suppress prose_start updates
-    // because events inside a task list should not start a new prose region.
-    let mut task_list_depth: usize = 0;
+    // Nesting depth for lists (incremented on Start(List), decremented on End(List)).
+    let mut list_depth: usize = 0;
+    // Whether we are currently inside a pure task list (all items are checkboxes).
+    // While true, we extract TaskListMarker items as Checkbox and suppress prose tracking.
+    let mut in_task_list: bool = false;
+    // When we determine a top-level list is mixed, record its depth so we skip
+    // all TaskListMarker events (including nested ones) until we exit that list.
+    let mut skip_markers_until_depth: Option<usize> = None;
 
     let mut i = 0;
     while i < events.len() {
@@ -103,16 +112,44 @@ fn parse_body(body: &str) -> Result<Vec<Step>, ParseError> {
                 let heading_text = collect_heading_text(&events, &mut i);
                 current_heading = Some(heading_text);
                 prose_start = None;
-                task_list_depth = 0;
+                list_depth = 0;
+                in_task_list = false;
+                skip_markers_until_depth = None;
+            }
+            Event::Start(Tag::List(_)) => {
+                list_depth += 1;
+                i += 1;
             }
             Event::TaskListMarker(checked) => {
+                // If we're inside a list that was determined to be mixed, skip.
+                if skip_markers_until_depth.is_some() {
+                    i += 1;
+                    continue;
+                }
                 let checked = *checked;
-                // On the first checkbox in a task list, flush any preceding prose
-                // up to the start of the enclosing list.
-                if task_list_depth == 0 {
-                    let list_start = find_list_start(&events, i);
-                    flush_prose(body, &mut prose_start, list_start, &mut current_content);
-                    task_list_depth = 1;
+                // On the first checkbox, check if the enclosing top-level list
+                // is a pure task list.
+                if !in_task_list {
+                    let list_start_idx = {
+                        let mut j = i;
+                        while j > 0 {
+                            j -= 1;
+                            if matches!(&events[j].0, Event::Start(Tag::List(_))) {
+                                break;
+                            }
+                        }
+                        j
+                    };
+                    if is_pure_task_list(&events, list_start_idx) {
+                        let list_start = events[list_start_idx].1.start;
+                        flush_prose(body, &mut prose_start, list_start, &mut current_content);
+                        in_task_list = true;
+                    } else {
+                        // Mixed list — skip all markers until we exit this list.
+                        skip_markers_until_depth = Some(list_depth);
+                        i += 1;
+                        continue;
+                    }
                 }
                 let text = collect_task_text(&events, &mut i);
                 current_content.push(StepContent::Checkbox {
@@ -120,13 +157,23 @@ fn parse_body(body: &str) -> Result<Vec<Step>, ParseError> {
                     checked,
                 });
             }
-            Event::End(TagEnd::List(_)) if task_list_depth > 0 => {
-                // Exiting the task list — prose can start after this event.
-                task_list_depth = 0;
-                i += 1;
-                // Set prose_start to the position after this list ends.
-                if i < events.len() {
-                    prose_start = Some(events[i].1.start);
+            Event::End(TagEnd::List(_)) => {
+                list_depth = list_depth.saturating_sub(1);
+                // Clear the mixed-list skip flag when we exit that list.
+                if let Some(depth) = skip_markers_until_depth
+                    && list_depth < depth
+                {
+                    skip_markers_until_depth = None;
+                }
+                if list_depth == 0 && in_task_list {
+                    // Exiting the outermost task list — prose can start after this event.
+                    in_task_list = false;
+                    i += 1;
+                    if i < events.len() {
+                        prose_start = Some(events[i].1.start);
+                    }
+                } else {
+                    i += 1;
                 }
             }
             Event::Start(Tag::CodeBlock(pulldown_cmark::CodeBlockKind::Fenced(lang)))
@@ -150,7 +197,7 @@ fn parse_body(body: &str) -> Result<Vec<Step>, ParseError> {
             _ => {
                 // Any other event: start tracking as prose if not already,
                 // unless we're inside a task list.
-                if prose_start.is_none() && current_heading.is_some() && task_list_depth == 0 {
+                if prose_start.is_none() && current_heading.is_some() && !in_task_list {
                     prose_start = Some(events[i].1.start);
                 }
                 i += 1;
@@ -170,18 +217,52 @@ fn parse_body(body: &str) -> Result<Vec<Step>, ParseError> {
     Ok(steps)
 }
 
-/// Walk backwards from a `TaskListMarker` to find the source start of its enclosing list.
-fn find_list_start(events: &[(Event<'_>, std::ops::Range<usize>)], marker_idx: usize) -> usize {
-    // Walk backwards to find the Start(List) event.
-    let mut j = marker_idx;
-    while j > 0 {
-        j -= 1;
-        if matches!(&events[j].0, Event::Start(Tag::List(_))) {
-            return events[j].1.start;
+/// Check whether the top-level list starting at `list_start_idx` is a *pure* task list
+/// (every direct item has a `TaskListMarker`). Mixed lists (some items with markers,
+/// some without) return `false` and should be treated as prose.
+fn is_pure_task_list(
+    events: &[(Event<'_>, std::ops::Range<usize>)],
+    list_start_idx: usize,
+) -> bool {
+    let mut depth: usize = 0;
+    let mut item_has_marker = false;
+    let mut seen_item = false;
+    let mut j = list_start_idx;
+
+    while j < events.len() {
+        match &events[j].0 {
+            Event::Start(Tag::List(_)) => {
+                depth += 1;
+            }
+            Event::End(TagEnd::List(_)) => {
+                depth -= 1;
+                if depth == 0 {
+                    // End of the list we're inspecting.
+                    // Check the last item.
+                    if seen_item && !item_has_marker {
+                        return false;
+                    }
+                    return seen_item; // empty list → false
+                }
+            }
+            Event::Start(Tag::Item) if depth == 1 => {
+                // Starting a new direct child item.
+                // Check the previous item (if any).
+                if seen_item && !item_has_marker {
+                    return false;
+                }
+                seen_item = true;
+                item_has_marker = false;
+            }
+            Event::TaskListMarker(_) if depth == 1 => {
+                item_has_marker = true;
+            }
+            _ => {}
         }
+        j += 1;
     }
-    // Fallback: use the marker's own position.
-    events[marker_idx].1.start
+    // Shouldn't reach here (list not properly closed), but be safe.
+    false
 }
 
 /// Collect the text content of a heading, advancing `i` past the heading end.
@@ -636,5 +717,180 @@ Some prose between checkboxes and inputs.
         if let StepContent::Prose { text } = &content[2] {
             assert!(text.contains("Some prose between checkboxes and inputs"));
         }
+    }
+
+    #[test]
+    fn test_mixed_regular_and_checkbox_items_as_prose() {
+        let source = r#"---
+id: MIX-002
+title: "Mixed List Test"
+version: "0.1"
+---
+
+## Step with mixed list
+
+- bullet point 1
+- [ ] a checkbox item
+  - [ ] a nested checkbox item
+"#;
+        let template = parse_template(source).unwrap();
+        assert_eq!(template.steps.len(), 1);
+
+        let content = &template.steps[0].content;
+        // Mixed list should be captured entirely as prose (not interactive checkboxes).
+        assert_eq!(
+            content.len(),
+            1,
+            "expected 1 content item (prose): {content:?}"
+        );
+        assert!(matches!(content[0], StepContent::Prose { .. }));
+
+        if let StepContent::Prose { text } = &content[0] {
+            assert!(
+                text.contains("bullet point 1"),
+                "should contain bullet: {text}"
+            );
+            assert!(
+                text.contains("[ ] a checkbox item"),
+                "should contain checkbox text: {text}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_nested_pure_checkboxes() {
+        let source = r#"---
+id: NEST-001
+title: "Nested Checkbox Test"
+version: "0.1"
+---
+
+## Step with nested checkboxes
+
+- [ ] parent checkbox
+  - [ ] nested checkbox
+"#;
+        let template = parse_template(source).unwrap();
+        assert_eq!(template.steps.len(), 1);
+
+        let checkboxes: Vec<_> = template.steps[0]
+            .content
+            .iter()
+            .filter_map(|c| match c {
+                StepContent::Checkbox { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+
+        // Both should be captured as checkboxes (the outer list is pure task list).
+        assert!(
+            checkboxes.len() >= 1,
+            "expected at least 1 checkbox: {checkboxes:?}"
+        );
+        assert!(
+            checkboxes.iter().any(|t| t.contains("parent checkbox")),
+            "should have parent checkbox: {checkboxes:?}"
+        );
+    }
+
+    #[test]
+    fn test_regular_bullet_list_as_prose() {
+        let source = r#"---
+id: BULLET-001
+title: "Bullet List Test"
+version: "0.1"
+---
+
+## Step with bullets
+
+- item 1
+- item 2
+- item 3
+"#;
+        let template = parse_template(source).unwrap();
+        assert_eq!(template.steps.len(), 1);
+
+        let content = &template.steps[0].content;
+        // Pure bullet list (no checkboxes) should be prose.
+        assert_eq!(content.len(), 1, "expected 1 content item: {content:?}");
+        assert!(matches!(content[0], StepContent::Prose { .. }));
+
+        if let StepContent::Prose { text } = &content[0] {
+            assert!(
+                text.contains("- item 1"),
+                "should contain bullet items: {text}"
+            );
+            assert!(
+                text.contains("- item 3"),
+                "should contain all items: {text}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_pure_task_list_then_regular_list() {
+        let source = r#"---
+id: SEQ-001
+title: "Sequential Lists"
+version: "0.1"
+---
+
+## Step with sequential lists
+
+- [ ] check 1
+- [ ] check 2
+
+Some text between.
+
+- bullet A
+- bullet B
+"#;
+        let template = parse_template(source).unwrap();
+        assert_eq!(template.steps.len(), 1);
+
+        let content = &template.steps[0].content;
+        // Should have: Checkbox, Checkbox, Prose (text + bullet list)
+        let checkbox_count = content
+            .iter()
+            .filter(|c| matches!(c, StepContent::Checkbox { .. }))
+            .count();
+        let prose_count = content
+            .iter()
+            .filter(|c| matches!(c, StepContent::Prose { .. }))
+            .count();
+
+        assert_eq!(checkbox_count, 2, "expected 2 checkboxes: {content:?}");
+        assert!(
+            prose_count >= 1,
+            "expected at least 1 prose block: {content:?}"
+        );
+    }
+
+    #[test]
+    fn test_same_marker_adjacent_lists_merged_as_prose() {
+        // pulldown-cmark merges adjacent lists using the same bullet marker into
+        // a single list. When that list contains both task items and regular items,
+        // the whole list becomes prose.
+        let source = r#"---
+id: MERGE-001
+title: "Merged List"
+version: "0.1"
+---
+
+## Step
+
+- [ ] check 1
+- [ ] check 2
+
+- bullet A
+- bullet B
+"#;
+        let template = parse_template(source).unwrap();
+        assert_eq!(template.steps.len(), 1);
+
+        let content = &template.steps[0].content;
+        // pulldown-cmark treats all 4 items as one list → mixed → prose
+        assert_eq!(content.len(), 1, "expected 1 prose block: {content:?}");
+        assert!(matches!(content[0], StepContent::Prose { .. }));
     }
 }

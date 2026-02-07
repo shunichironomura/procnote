@@ -369,6 +369,22 @@
         font-size: 13px;
     }
 
+    .step-description :global(pre) {
+        background: #f0f0f0;
+        padding: 12px;
+        border-radius: 4px;
+        overflow-x: auto;
+        margin: 0.5em 0;
+        font-size: 13px;
+        line-height: 1.4;
+    }
+
+    .step-description :global(pre code) {
+        background: none;
+        padding: 0;
+        border-radius: 0;
+    }
+
     .timestamp {
         font-size: 11px;
         color: #999;

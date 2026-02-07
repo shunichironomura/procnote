@@ -1,42 +1,163 @@
-# sv
+# procnote
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+A procedure execution tool for tracking step-by-step procedures with checkboxes, data inputs, attachments, and notes. Built as an event-sourced Tauri 2 desktop app (Rust backend + Svelte 5 frontend).
 
-## Creating a project
+Procedures are written as Markdown templates with YAML frontmatter. Each execution replays an append-only event log, ensuring crash safety and full auditability.
 
-If you're seeing this, you've probably already done this step. Congrats!
+## Template Syntax
 
-```sh
-# create a new project
-npx sv create my-app
+A procedure template is a Markdown file with YAML frontmatter followed by steps defined as `##` headings.
+
+### Frontmatter
+
+```yaml
+---
+id: TVT-001
+title: "Thermal Vacuum Test - Reaction Wheel Unit"
+version: "1.0"
+author: "Nomura"                        # optional
+equipment:                              # optional
+  - id: CHAMBER-A
+    name: "Thermal Vacuum Chamber A"
+requirement_traces:                     # optional
+  - REQ-RWU-TEMP-001
+---
 ```
 
-To recreate this project with the same configuration:
+Required fields: `id`, `title`, `version`.
 
-```sh
-# recreate this project
-npx sv create --template minimal --types ts --no-install .
+### Steps
+
+Each `##` heading defines a step. Content within a step can include prose, checkboxes, and input blocks in any order. The order in the template is preserved in the UI.
+
+```markdown
+## Step 1: Power On Sequence
+
+Connect PSU to DUT J1 connector. Set voltage to 5.0V.
 ```
 
-## Developing
+### Checkboxes
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+Use Markdown task list syntax for interactive checkboxes:
 
-```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+```markdown
+- [ ] Chamber pressure < 1e-5 Pa
+- [ ] DUT temperature stabilized
+- [x] Pre-checked item
 ```
 
-## Building
+**Constraint:** A list must contain *only* checkbox items to be recognized as interactive checkboxes. If a list mixes regular bullet items with checkbox items, the entire list is treated as prose (rendered as Markdown text, not interactive checkboxes).
 
-To create a production version of your app:
+```markdown
+<!-- All checkboxes - rendered as interactive checkboxes -->
+- [ ] First check
+- [ ] Second check
 
-```sh
-npm run build
+<!-- Mixed list - rendered as prose, NOT interactive checkboxes -->
+- A regular bullet point
+- [ ] A checkbox item
 ```
 
-You can preview the production build with `npm run preview`.
+### Input Blocks
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+Define data-entry fields using a fenced code block with the `inputs` language tag. The block body is YAML:
+
+```markdown
+```inputs
+- id: current-draw
+  label: "Measure current draw"
+  type: measurement
+  unit: "mA"
+  expected:
+    min: 100
+    max: 150
+- id: selftest-result
+  label: "Self-test response"
+  type: selection
+  options: ["PASS", "FAIL", "TIMEOUT"]
+  expected: "PASS"
+- id: log-file
+  label: "Attach log file"
+  type: attachment
+```​
+```
+
+Input types:
+
+| Type | Description |
+| ---- | ----------- |
+| `measurement` | Numeric value with optional `unit` and `expected` range |
+| `text` | Free-form text |
+| `selection` | Dropdown from `options` list, with optional `expected` value |
+| `attachment` | File upload (stored with SHA-256 hash) |
+
+### Prose
+
+Any other Markdown content (paragraphs, bullet lists, sub-headings, code blocks, links, etc.) is rendered as-is. Standard Markdown formatting is supported.
+
+### Full Example
+
+```markdown
+---
+id: TVT-001
+title: "Thermal Vacuum Test"
+version: "1.0"
+---
+
+## Preconditions
+
+- [ ] Chamber pressure < 1e-5 Pa
+- [ ] DUT temperature stabilized at 25 deg C
+
+## Step 1: Power On Sequence
+
+Connect PSU to DUT J1 connector. Set voltage to 5.0V. Enable output.
+
+- [ ] Confirm voltage stable
+
+```inputs
+- id: current-draw
+  label: "Measure current draw"
+  type: measurement
+  unit: "mA"
+  expected:
+    min: 100
+    max: 150
+```​
+
+## Postconditions
+
+- [ ] DUT powered off
+- [ ] Chamber returned to ambient
+```
+
+## Development
+
+Requires [Rust](https://rustup.rs/), [Node.js](https://nodejs.org/), [pnpm](https://pnpm.io/), and [just](https://github.com/casey/just).
+
+```sh
+# Start development server
+just dev
+
+# Run all checks
+just check-all
+
+# Run Rust tests
+just test
+
+# Generate TypeScript type bindings from Rust
+just generate-types
+
+# Format Rust code
+just fmt
+```
+
+## Architecture
+
+Three layers with strict dependency direction:
+
+1. **`crates/procnote-core/`** -- Pure Rust domain logic (events, state machine, template parser). No Tauri dependency.
+2. **`src-tauri/`** -- Tauri shell. Bridges core to desktop via IPC commands. Owns serialization DTOs and filesystem I/O.
+3. **`src/`** -- SvelteKit + Svelte 5 frontend.
+
+Executions are stored as append-only JSONL event logs under `.executions/`.
