@@ -144,6 +144,7 @@ impl ExecutionState {
     }
 
     /// Apply a single event to the state (used by both replay and transitions).
+    #[expect(clippy::too_many_lines, reason = "exhaustive match over all Event variants for state machine")]
     pub fn apply(&mut self, event: &Event) -> Result<(), ExecutionError> {
         match event {
             Event::ExecutionStarted {
@@ -235,8 +236,9 @@ impl ExecutionState {
                 self.require_active()?;
                 let step = self.get_step_mut(step_heading)?;
                 match step.status {
-                    StepStatus::Pending => step.status = StepStatus::Skipped,
-                    StepStatus::Active => step.status = StepStatus::Skipped,
+                    StepStatus::Pending | StepStatus::Active => {
+                        step.status = StepStatus::Skipped;
+                    }
                     StepStatus::Completed | StepStatus::Skipped => {
                         return Err(ExecutionError::StepAlreadyFinished(step_heading.clone()));
                     }

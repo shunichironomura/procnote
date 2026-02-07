@@ -41,13 +41,10 @@ pub fn read_events(path: &Path) -> Result<Vec<Event>, EventLogError> {
         if trimmed.is_empty() {
             continue;
         }
-        match serde_json::from_str::<Event>(trimmed) {
-            Ok(event) => events.push(event),
-            Err(_) => {
-                // Skip corrupt/partial lines (crash recovery).
-                continue;
-            }
+        if let Ok(event) = serde_json::from_str::<Event>(trimmed) {
+            events.push(event);
         }
+        // Else: skip corrupt/partial lines (crash recovery).
     }
     Ok(events)
 }

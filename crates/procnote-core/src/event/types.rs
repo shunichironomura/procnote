@@ -153,29 +153,22 @@ impl Event {
     #[must_use]
     pub const fn revertibility(&self) -> Revertibility {
         match self {
-            // Lifecycle — not revertible
-            Self::ExecutionStarted { .. } => Revertibility::NotRevertible,
-            Self::ExecutionCompleted { .. } => Revertibility::Revertible,
-            Self::ExecutionAborted { .. } => Revertibility::Revertible,
+            // Lifecycle/structural — not revertible
+            Self::ExecutionStarted { .. } | Self::StepAdded { .. } => {
+                Revertibility::NotRevertible
+            }
 
-            // Structural — not revertible (other events reference the step by heading)
-            Self::StepAdded { .. } => Revertibility::NotRevertible,
-
-            // Step transitions — revertible
-            Self::StepStarted { .. } => Revertibility::Revertible,
-            Self::StepCompleted { .. } => Revertibility::Revertible,
-            Self::StepSkipped { .. } => Revertibility::Revertible,
-
-            // Data events — revertible
-            Self::CheckboxToggled { .. } => Revertibility::Revertible,
-            Self::InputRecorded { .. } => Revertibility::Revertible,
-            Self::NoteAdded { .. } => Revertibility::Revertible,
-
-            // Attachment — revertible (file stays on disk)
-            Self::AttachmentAdded { .. } => Revertibility::Revertible,
-
-            // Name — revertible
-            Self::ExecutionRenamed { .. } => Revertibility::Revertible,
+            // Everything else (except revert markers) — revertible
+            Self::ExecutionCompleted { .. }
+            | Self::ExecutionAborted { .. }
+            | Self::StepStarted { .. }
+            | Self::StepCompleted { .. }
+            | Self::StepSkipped { .. }
+            | Self::CheckboxToggled { .. }
+            | Self::InputRecorded { .. }
+            | Self::NoteAdded { .. }
+            | Self::AttachmentAdded { .. }
+            | Self::ExecutionRenamed { .. } => Revertibility::Revertible,
 
             // Revert marker — not revertible
             Self::EventReverted { .. } => Revertibility::RevertMarker,

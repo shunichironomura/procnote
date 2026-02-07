@@ -193,10 +193,8 @@ fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSumma
                 step_heading,
                 label,
                 ..
-            } => {
-                input_at.insert((step_heading, label), at.to_rfc3339());
             }
-            Event::AttachmentAdded {
+            | Event::AttachmentAdded {
                 at,
                 step_heading,
                 label,
@@ -323,14 +321,14 @@ fn event_step_and_label(event: &Event) -> (Option<String>, Option<String>) {
     match event {
         Event::StepStarted { step_heading, .. }
         | Event::StepCompleted { step_heading, .. }
-        | Event::StepSkipped { step_heading, .. } => (Some(step_heading.clone()), None),
-        Event::CheckboxToggled { step_heading, .. } => (Some(step_heading.clone()), None),
+        | Event::StepSkipped { step_heading, .. }
+        | Event::CheckboxToggled { step_heading, .. } => (Some(step_heading.clone()), None),
         Event::InputRecorded {
             step_heading,
             label,
             ..
-        } => (Some(step_heading.clone()), Some(label.clone())),
-        Event::AttachmentAdded {
+        }
+        | Event::AttachmentAdded {
             step_heading,
             label,
             ..
@@ -442,7 +440,9 @@ pub fn start_execution(
     let mut exec_state = ExecutionState::new();
     let events = exec_state.start(&template).map_err(|e| e.to_string())?;
 
-    let execution_id = exec_state.execution_id.unwrap();
+    let execution_id = exec_state
+        .execution_id
+        .expect("start() must set execution_id");
 
     // Extract the timestamp from the ExecutionStarted event.
     let started_at = events
