@@ -37,6 +37,22 @@
             .at(-1),
     );
 
+    // Build a map of input label -> most recent revertible input_recorded event.
+    // Description format: "Recorded <label> = <value> in <step_heading>"
+    let revertibleInputEvents = $derived.by(() => {
+        const map = new Map<string, EventHistoryEntry>();
+        for (const e of revertibleEvents) {
+            if (e.event_type === "input_recorded") {
+                // Extract label from description: "Recorded <label> = ..."
+                const match = e.description.match(/^Recorded (.+?) = /);
+                if (match) {
+                    map.set(match[1], e);
+                }
+            }
+        }
+        return map;
+    });
+
     function startStep() {
         onaction({ action: "start_step", step_heading: stepSummary.heading });
     }
@@ -119,6 +135,7 @@
     {#if stepSummary.input_definitions.length > 0}
         <div class="step-section">
             {#each stepSummary.input_definitions as defn}
+                {@const inputEvent = revertibleInputEvents.get(defn.label)}
                 <InputField
                     definition={defn}
                     recorded={stepSummary.inputs.find(
@@ -126,6 +143,14 @@
                     )}
                     disabled={!isInteractable}
                     onrecord={recordInput}
+                    onrevert={inputEvent && executionActive
+                        ? () =>
+                              onaction({
+                                  action: "revert_event",
+                                  event_index: inputEvent.index,
+                                  reason: "Reverted by operator",
+                              })
+                        : undefined}
                 />
             {/each}
         </div>

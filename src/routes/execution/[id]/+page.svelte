@@ -31,25 +31,26 @@
 
     let stepHeadings = $derived(summary?.steps.map((s) => s.heading) ?? []);
 
+    // Event types that are scoped to a specific step.
+    const stepScopedEventTypes = new Set([
+        "step_started",
+        "step_completed",
+        "step_skipped",
+        "input_recorded",
+        "checkbox_toggled",
+    ]);
+
     // Build a map of step_heading -> revertible events for that step.
     let revertibleEventsByStep = $derived.by(() => {
         const map = new Map<string, EventHistoryEntry[]>();
         if (!summary) return map;
 
-        const stepEventTypes = new Set([
-            "step_started",
-            "step_completed",
-            "step_skipped",
-        ]);
-
         for (const entry of summary.event_history) {
             if (
                 entry.revertible &&
                 !entry.reverted &&
-                stepEventTypes.has(entry.event_type)
+                stepScopedEventTypes.has(entry.event_type)
             ) {
-                // Extract step_heading from description (e.g. "Completed step: Preconditions")
-                // A more robust approach: match against known step headings
                 for (const heading of stepHeadings) {
                     if (entry.description.includes(heading)) {
                         if (!map.has(heading)) map.set(heading, []);

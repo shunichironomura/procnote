@@ -6,11 +6,13 @@
         recorded,
         disabled = false,
         onrecord,
+        onrevert,
     }: {
         definition: InputDefinition;
         recorded?: InputState;
         disabled?: boolean;
         onrecord: (label: string, value: string, unit?: string) => void;
+        onrevert?: () => void;
     } = $props();
 
     let inputValue = $state("");
@@ -85,6 +87,9 @@
         {/if}
         {#if isRecorded}
             <span class="recorded-badge">Recorded</span>
+            {#if onrevert}
+                <button class="btn-undo" onclick={onrevert}>Undo</button>
+            {/if}
         {/if}
     </div>
 </div>
@@ -181,5 +186,22 @@
         font-weight: 600;
         color: #2e7d32;
         white-space: nowrap;
+    }
+
+    .btn-undo {
+        padding: 3px 8px;
+        background: #fff;
+        color: #6a1b9a;
+        border: 1px solid #ce93d8;
+        border-radius: 4px;
+        font: inherit;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+
+    .btn-undo:hover {
+        background: #f3e5f5;
     }
 </style>
