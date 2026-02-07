@@ -27,7 +27,9 @@
                 <li class="note-item">
                     <span class="note-text">{note}</span>
                     {#if onrevert}
-                        <button class="btn-undo" onclick={() => onrevert(i)}>Undo</button>
+                        <button class="btn-delete" title="Delete note" onclick={() => onrevert(i)}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                        </button>
                     {/if}
                 </li>
             {/each}
@@ -79,22 +81,24 @@
         flex: 1;
     }
 
-    .btn-undo {
-        padding: 2px 6px;
-        background: #fff;
-        color: #6a1b9a;
-        border: 1px solid #ce93d8;
+    .btn-delete {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 4px;
+        background: none;
+        color: #b71c1c;
+        border: none;
         border-radius: 4px;
-        font: inherit;
-        font-size: 11px;
-        font-weight: 600;
         cursor: pointer;
-        white-space: nowrap;
         flex-shrink: 0;
+        opacity: 0.5;
+        transition: opacity 0.15s, background 0.15s;
     }
 
-    .btn-undo:hover {
-        background: #f3e5f5;
+    .btn-delete:hover {
+        opacity: 1;
+        background: #fce4ec;
     }
 
     .note-input {
