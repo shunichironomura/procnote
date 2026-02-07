@@ -24,7 +24,10 @@ pub fn list_templates(state: State<'_, AppState>) -> Result<Vec<TemplateSummary>
     let dir = &state.procedures_dir;
     log::info!("list_templates: scanning directory {}", dir.display());
     if !dir.exists() {
-        log::warn!("list_templates: directory does not exist: {}", dir.display());
+        log::warn!(
+            "list_templates: directory does not exist: {}",
+            dir.display()
+        );
         return Ok(Vec::new());
     }
 
@@ -54,7 +57,10 @@ pub fn list_templates(state: State<'_, AppState>) -> Result<Vec<TemplateSummary>
                     });
                 }
                 Err(e) => {
-                    log::warn!("list_templates: skipping invalid template {}: {e}", path.display());
+                    log::warn!(
+                        "list_templates: skipping invalid template {}: {e}",
+                        path.display()
+                    );
                 }
             }
         } else {
