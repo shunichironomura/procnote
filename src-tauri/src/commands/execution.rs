@@ -31,6 +31,8 @@ pub struct ExecutionSummary {
     pub finished_at: Option<String>,
     pub steps: Vec<StepSummary>,
     pub event_history: Vec<EventHistoryEntry>,
+    /// Absolute path to the execution directory on disk.
+    pub execution_dir: String,
 }
 
 /// A single entry in the event history, exposed to the frontend.
@@ -130,7 +132,11 @@ fn step_status_string(status: &StepStatus) -> String {
     clippy::too_many_lines,
     reason = "large match over all event variants to build summary"
 )]
-fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSummary {
+fn summarize(
+    state: &ExecutionState,
+    events: Option<&[Event]>,
+    execution_dir: &Path,
+) -> ExecutionSummary {
     use std::collections::{HashMap, HashSet};
 
     let events_slice = events.unwrap_or(&[]);
@@ -290,6 +296,7 @@ fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSumma
         finished_at,
         steps,
         event_history,
+        execution_dir: execution_dir.display().to_string(),
     }
 }
 
@@ -482,7 +489,7 @@ pub fn start_execution(
         append_event(&log_path, event).map_err(|e| e.to_string())?;
     }
 
-    Ok(summarize(&exec_state, Some(&events)))
+    Ok(summarize(&exec_state, Some(&events), &exec_dir))
 }
 
 /// Action payload from the frontend for recording events.
@@ -560,6 +567,7 @@ pub fn record_action(
     log::debug!("record_action: execution={execution_id}, action={action:?}");
     let (mut exec_state, mut events, log_path) =
         load_execution_from_disk(&state.executions_dir, execution_id)?;
+    let exec_dir = log_path.parent().expect("log_path must have a parent");
 
     // Revert is a special case: it rebuilds state from events.
     if let ExecutionAction::RevertEvent {
@@ -577,7 +585,7 @@ pub fn record_action(
         // Rebuild state from the full event log.
         let exec_state = ExecutionState::from_events(&events).map_err(|e| e.to_string())?;
 
-        return Ok(summarize(&exec_state, Some(&events)));
+        return Ok(summarize(&exec_state, Some(&events), exec_dir));
     }
 
     let event: Event = match action {
@@ -630,7 +638,6 @@ pub fn record_action(
             // Copy file into <exec_dir>/attachments/<hash7>-<filename>.
             let short_hash = &sha256[..7];
             let stored_name = format!("{short_hash}-{filename}");
-            let exec_dir = log_path.parent().expect("log_path must have a parent");
             let attachments_dir = exec_dir.join("attachments");
             std::fs::create_dir_all(&attachments_dir).map_err(|e| e.to_string())?;
             let dest = attachments_dir.join(&stored_name);
@@ -664,7 +671,7 @@ pub fn record_action(
     append_event(&log_path, &event).map_err(|e| e.to_string())?;
     events.push(event);
 
-    Ok(summarize(&exec_state, Some(&events)))
+    Ok(summarize(&exec_state, Some(&events), exec_dir))
 }
 
 /// Get the current state of an execution.
@@ -677,8 +684,10 @@ pub fn get_execution_state(
     state: State<'_, AppState>,
     execution_id: ExecutionId,
 ) -> Result<ExecutionSummary, String> {
-    let (exec_state, events, _) = load_execution_from_disk(&state.executions_dir, execution_id)?;
-    Ok(summarize(&exec_state, Some(&events)))
+    let (exec_state, events, log_path) =
+        load_execution_from_disk(&state.executions_dir, execution_id)?;
+    let exec_dir = log_path.parent().expect("log_path must have a parent");
+    Ok(summarize(&exec_state, Some(&events), exec_dir))
 }
 
 /// List all executions by scanning the executions directory on disk.
@@ -719,7 +728,7 @@ pub fn list_executions(state: State<'_, AppState>) -> Result<Vec<ExecutionSummar
                 continue;
             }
         };
-        summaries.push(summarize(&exec_state, Some(&events)));
+        summaries.push(summarize(&exec_state, Some(&events), &dir_path));
     }
 
     Ok(summaries)

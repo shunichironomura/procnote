@@ -13,4 +13,8 @@ started_at?: string,
 /**
  * ISO 8601 timestamp of when the execution was finished (completed/aborted).
  */
-finished_at?: string, steps: Array<StepSummary>, event_history: Array<EventHistoryEntry>, };
+finished_at?: string, steps: Array<StepSummary>, event_history: Array<EventHistoryEntry>, 
+/**
+ * Absolute path to the execution directory on disk.
+ */
+execution_dir: string, };
