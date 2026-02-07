@@ -46,7 +46,7 @@
         {/if}
     </div>
     <div class="input-row">
-        {#if definition.input_type === "selection"}
+        {#if definition.type === "selection"}
             <select
                 id={inputId}
                 bind:value={inputValue}
@@ -61,12 +61,12 @@
         {:else}
             <input
                 id={inputId}
-                type={definition.input_type === "measurement"
+                type={definition.type === "measurement"
                     ? "number"
                     : "text"}
                 bind:value={inputValue}
                 disabled={disabled || isRecorded}
-                placeholder={definition.input_type === "measurement"
+                placeholder={definition.type === "measurement"
                     ? "0.0"
                     : "Enter value"}
                 onkeydown={(e) => {
@@ -77,7 +77,7 @@
         {#if definition.unit}
             <span class="unit">{definition.unit}</span>
         {/if}
-        {#if !isRecorded && definition.input_type !== "selection"}
+        {#if !isRecorded && definition.type !== "selection"}
             <button
                 class="btn-record"
                 onclick={submit}

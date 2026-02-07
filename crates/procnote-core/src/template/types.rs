@@ -69,6 +69,7 @@ pub enum InputType {
     Measurement,
     Text,
     Selection,
+    Attachment,
 }
 
 /// Expected value for validation — either a range or an exact match.

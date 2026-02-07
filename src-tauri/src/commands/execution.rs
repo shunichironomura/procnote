@@ -168,6 +168,14 @@ fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSumma
             } => {
                 input_at.insert((step_heading, label), at.to_rfc3339());
             }
+            Event::AttachmentAdded {
+                at,
+                step_heading,
+                label,
+                ..
+            } => {
+                input_at.insert((step_heading, label), at.to_rfc3339());
+            }
             Event::NoteAdded {
                 at,
                 step_heading: Some(heading),
@@ -316,6 +324,14 @@ fn event_at(event: &Event) -> String {
     }
 }
 
+/// Compute the SHA-256 hash of a file, returning a lowercase hex string.
+fn compute_sha256(path: &str) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    let bytes = std::fs::read(path)?;
+    let hash = Sha256::digest(&bytes);
+    Ok(format!("{hash:x}"))
+}
+
 /// Format the execution directory name as `{YYYYMMDD}T{HHMMSS}-{uuid_8}`.
 fn execution_dir_name(at: &DateTime<Utc>, execution_id: ExecutionId) -> String {
     format!(
@@ -434,6 +450,8 @@ pub enum ExecutionAction {
         after_step: Option<String>,
     },
     AddAttachment {
+        step_heading: String,
+        label: String,
         filename: String,
         path: String,
         content_type: String,
@@ -521,12 +539,24 @@ pub fn record_action(
             .add_step(&heading, description.as_deref(), after_step.as_deref())
             .map_err(|e| e.to_string())?,
         ExecutionAction::AddAttachment {
+            step_heading,
+            label,
             filename,
             path,
             content_type,
-        } => exec_state
-            .add_attachment(&filename, &path, &content_type)
-            .map_err(|e| e.to_string())?,
+        } => {
+            let sha256 = compute_sha256(&path).map_err(|e| e.to_string())?;
+            exec_state
+                .add_attachment(
+                    &step_heading,
+                    &label,
+                    &filename,
+                    &path,
+                    &content_type,
+                    &sha256,
+                )
+                .map_err(|e| e.to_string())?
+        }
         ExecutionAction::Complete { status } => {
             exec_state.complete(status).map_err(|e| e.to_string())?
         }

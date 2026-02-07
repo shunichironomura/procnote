@@ -105,9 +105,12 @@ pub enum Event {
     AttachmentAdded {
         at: DateTime<Utc>,
         execution_id: ExecutionId,
+        step_heading: String,
+        label: String,
         filename: String,
         path: String,
         content_type: String,
+        sha256: String,
     },
 
     // -- Name --
@@ -237,8 +240,13 @@ impl Event {
                 };
                 format!("Added note{scope}: {truncated}")
             }
-            Event::AttachmentAdded { filename, .. } => {
-                format!("Added attachment: {filename}")
+            Event::AttachmentAdded {
+                step_heading,
+                label,
+                filename,
+                ..
+            } => {
+                format!("Recorded {label} = {filename} in {step_heading}")
             }
             Event::ExecutionRenamed { name, .. } => {
                 format!("Renamed execution to: {name}")

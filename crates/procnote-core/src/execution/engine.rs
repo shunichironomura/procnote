@@ -91,16 +91,7 @@ pub struct ExecutionState {
     /// Ordered step headings (preserves insertion order).
     pub step_order: Vec<String>,
     pub steps: HashMap<String, StepState>,
-    pub attachments: Vec<Attachment>,
     pub global_notes: Vec<String>,
-}
-
-/// A recorded attachment.
-#[derive(Debug, Clone)]
-pub struct Attachment {
-    pub filename: String,
-    pub path: String,
-    pub content_type: String,
 }
 
 impl ExecutionState {
@@ -115,7 +106,6 @@ impl ExecutionState {
             status: ExecutionStatus::Pending,
             step_order: Vec::new(),
             steps: HashMap::new(),
-            attachments: Vec::new(),
             global_notes: Vec::new(),
         }
     }
@@ -300,17 +290,21 @@ impl ExecutionState {
             }
 
             Event::AttachmentAdded {
+                step_heading,
+                label,
                 filename,
-                path,
-                content_type,
                 ..
             } => {
                 self.require_active()?;
-                self.attachments.push(Attachment {
-                    filename: filename.clone(),
-                    path: path.clone(),
-                    content_type: content_type.clone(),
-                });
+                let step = self.get_step_mut(step_heading)?;
+                step.inputs.insert(
+                    label.clone(),
+                    RecordedInput {
+                        label: label.clone(),
+                        value: filename.clone(),
+                        unit: None,
+                    },
+                );
             }
 
             Event::ExecutionRenamed { name, .. } => {
@@ -533,17 +527,23 @@ impl ExecutionState {
     /// Add an attachment.
     pub fn add_attachment(
         &mut self,
+        step_heading: &str,
+        label: &str,
         filename: &str,
         path: &str,
         content_type: &str,
+        sha256: &str,
     ) -> Result<Event, ExecutionError> {
         self.require_active()?;
         let event = Event::AttachmentAdded {
             at: Utc::now(),
             execution_id: self.require_execution_id()?,
+            step_heading: step_heading.to_string(),
+            label: label.to_string(),
             filename: filename.to_string(),
             path: path.to_string(),
             content_type: content_type.to_string(),
+            sha256: sha256.to_string(),
         };
         self.apply(&event)?;
         Ok(event)
@@ -909,13 +909,21 @@ mod tests {
         let template = sample_template();
         let mut state = ExecutionState::new();
         state.start(&template).unwrap();
+        state.start_step("Step 1: Power On").unwrap();
 
         state
-            .add_attachment("photo.jpg", "attachments/photo.jpg", "image/jpeg")
+            .add_attachment(
+                "Step 1: Power On",
+                "Log file",
+                "photo.jpg",
+                "attachments/photo.jpg",
+                "image/jpeg",
+                "abc123",
+            )
             .unwrap();
 
-        assert_eq!(state.attachments.len(), 1);
-        assert_eq!(state.attachments[0].filename, "photo.jpg");
+        let input = &state.steps["Step 1: Power On"].inputs["Log file"];
+        assert_eq!(input.value, "photo.jpg");
     }
 
     #[test]
@@ -1082,17 +1090,29 @@ mod tests {
         let mut state = ExecutionState::new();
         let mut events: Vec<Event> = Vec::new();
         events.extend(state.start(&template).unwrap());
+        events.push(state.start_step("Step 1: Power On").unwrap()); // index 5
         events.push(
             state
-                .add_attachment("photo.jpg", "path/photo.jpg", "image/jpeg")
+                .add_attachment(
+                    "Step 1: Power On",
+                    "Log file",
+                    "photo.jpg",
+                    "path/photo.jpg",
+                    "image/jpeg",
+                    "abc123",
+                )
                 .unwrap(),
-        ); // index 5
+        ); // index 6
 
-        let revert = ExecutionState::revert_event(&events, 5, "wrong file").unwrap();
+        let revert = ExecutionState::revert_event(&events, 6, "wrong file").unwrap();
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
-        assert!(state.attachments.is_empty());
+        assert!(
+            !state.steps["Step 1: Power On"]
+                .inputs
+                .contains_key("Log file")
+        );
     }
 
     #[test]

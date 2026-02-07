@@ -12,6 +12,7 @@ use state::AppState;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run(procedures_dir: Option<PathBuf>, executions_dir: Option<PathBuf>) {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
