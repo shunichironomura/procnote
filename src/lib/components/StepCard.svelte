@@ -183,7 +183,7 @@
                     onclick={() => (showSkipDialog = true)}>Skip</button
                 >
             {/if}
-            {#if revertibleStatusEvent && (isCompleted || isSkipped)}
+            {#if revertibleStatusEvent && (isCompleted || isSkipped || isActive)}
                 <button
                     class="btn btn-undo"
                     onclick={() =>
@@ -193,7 +193,7 @@
                             reason: "Reverted by operator",
                         })}
                 >
-                    Undo {isCompleted ? "Complete" : "Skip"}
+                    Undo {isCompleted ? "Complete" : isSkipped ? "Skip" : "Start"}
                 </button>
             {/if}
         </div>
