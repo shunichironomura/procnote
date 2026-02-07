@@ -184,7 +184,7 @@
                         </button>
                     {/if}
                     <span class="procedure-meta">
-                        {summary.procedure_id} v{summary.procedure_version}
+                        {summary.procedure_title} ({summary.procedure_id}) v{summary.procedure_version}
                     </span>
                 </div>
             </div>

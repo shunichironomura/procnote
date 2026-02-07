@@ -71,6 +71,7 @@ mod tests {
                 at: now,
                 execution_id: id,
                 procedure_id: "TVT-001".to_string(),
+                procedure_title: "Thermal Vacuum Test".to_string(),
                 procedure_version: "1.0".to_string(),
             },
             Event::StepStarted {
@@ -194,6 +195,7 @@ mod tests {
                 at: now,
                 execution_id: id,
                 procedure_id: "P-001".to_string(),
+                procedure_title: "Procedure 001".to_string(),
                 procedure_version: "1.0".to_string(),
             },
             Event::ExecutionCompleted {

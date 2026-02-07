@@ -70,7 +70,7 @@
 							</span>
 						</div>
 						<div class="exec-meta">
-							<span>{exec.procedure_id} v{exec.procedure_version}</span>
+							<span>{exec.procedure_title} ({exec.procedure_id}) v{exec.procedure_version}</span>
 							{#if exec.finished_at && exec.started_at}
 								<span class="exec-time">{formatTimestamp(exec.started_at)} — {formatTimestamp(exec.finished_at)}</span>
 							{:else if exec.started_at}

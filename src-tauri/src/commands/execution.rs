@@ -16,6 +16,7 @@ pub struct ExecutionSummary {
     pub execution_id: ExecutionId,
     pub name: Option<String>,
     pub procedure_id: String,
+    pub procedure_title: String,
     pub procedure_version: String,
     pub status: String,
     /// ISO 8601 timestamp of when the execution was started.
@@ -234,6 +235,7 @@ fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSumma
         execution_id: state.execution_id.unwrap_or_default(),
         name: state.name.clone(),
         procedure_id: state.procedure_id.clone().unwrap_or_default(),
+        procedure_title: state.procedure_title.clone().unwrap_or_default(),
         procedure_version: state.procedure_version.clone().unwrap_or_default(),
         status: status_string(&state.status),
         started_at,
