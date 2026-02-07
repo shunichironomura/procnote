@@ -144,7 +144,10 @@ impl ExecutionState {
     }
 
     /// Apply a single event to the state (used by both replay and transitions).
-    #[expect(clippy::too_many_lines, reason = "exhaustive match over all Event variants for state machine")]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive match over all Event variants for state machine"
+    )]
     pub fn apply(&mut self, event: &Event) -> Result<(), ExecutionError> {
         match event {
             Event::ExecutionStarted {

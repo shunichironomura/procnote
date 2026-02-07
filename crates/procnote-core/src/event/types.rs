@@ -154,9 +154,7 @@ impl Event {
     pub const fn revertibility(&self) -> Revertibility {
         match self {
             // Lifecycle/structural — not revertible
-            Self::ExecutionStarted { .. } | Self::StepAdded { .. } => {
-                Revertibility::NotRevertible
-            }
+            Self::ExecutionStarted { .. } | Self::StepAdded { .. } => Revertibility::NotRevertible,
 
             // Everything else (except revert markers) — revertible
             Self::ExecutionCompleted { .. }
