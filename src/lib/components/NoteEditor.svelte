@@ -3,10 +3,12 @@
         notes,
         disabled = false,
         onadd,
+        onrevert,
     }: {
         notes: string[];
         disabled?: boolean;
         onadd: (text: string) => void;
+        onrevert?: (noteIndex: number) => void;
     } = $props();
 
     let noteText = $state("");
@@ -21,8 +23,15 @@
 <div class="note-editor">
     {#if notes.length > 0}
         <ul class="note-list">
-            {#each notes as note}
-                <li class="note-item">{note}</li>
+            {#each notes as note, i}
+                <li class="note-item">
+                    <span class="note-text">{note}</span>
+                    {#if onrevert}
+                        <button class="btn-delete" title="Delete note" onclick={() => onrevert(i)}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                        </button>
+                    {/if}
+                </li>
             {/each}
         </ul>
     {/if}
@@ -55,6 +64,9 @@
     }
 
     .note-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
         padding: 4px 0;
         font-size: 13px;
         color: #555;
@@ -63,6 +75,30 @@
 
     .note-item:last-child {
         border-bottom: none;
+    }
+
+    .note-text {
+        flex: 1;
+    }
+
+    .btn-delete {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 4px;
+        background: none;
+        color: #b71c1c;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        flex-shrink: 0;
+        opacity: 0.5;
+        transition: opacity 0.15s, background 0.15s;
+    }
+
+    .btn-delete:hover {
+        opacity: 1;
+        background: #fce4ec;
     }
 
     .note-input {

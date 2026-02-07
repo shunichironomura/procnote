@@ -108,4 +108,134 @@ pub enum Event {
         path: String,
         content_type: String,
     },
+
+    // -- Revert --
+    /// Marks a previously recorded event as reverted.
+    /// State is rebuilt by replaying all events, skipping reverted ones.
+    EventReverted {
+        at: DateTime<Utc>,
+        execution_id: ExecutionId,
+        /// Zero-based index of the event in the log to revert.
+        reverted_event_index: usize,
+        /// Human-readable reason for the revert (audit trail).
+        reason: String,
+    },
+}
+
+/// Whether an event can be reverted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Revertibility {
+    /// This event can be reverted by the user.
+    Revertible,
+    /// This event cannot be reverted (structural/lifecycle).
+    NotRevertible,
+    /// This event is itself a revert marker and cannot be reverted.
+    RevertMarker,
+}
+
+impl Event {
+    /// Classify whether this event can be reverted.
+    ///
+    /// This match is exhaustive — adding a new `Event` variant without
+    /// updating this method will cause a compile error.
+    pub fn revertibility(&self) -> Revertibility {
+        match self {
+            // Lifecycle — not revertible
+            Event::ExecutionStarted { .. } => Revertibility::NotRevertible,
+            Event::ExecutionCompleted { .. } => Revertibility::Revertible,
+            Event::ExecutionAborted { .. } => Revertibility::Revertible,
+
+            // Structural — not revertible (other events reference the step by heading)
+            Event::StepAdded { .. } => Revertibility::NotRevertible,
+
+            // Step transitions — revertible
+            Event::StepStarted { .. } => Revertibility::Revertible,
+            Event::StepCompleted { .. } => Revertibility::Revertible,
+            Event::StepSkipped { .. } => Revertibility::Revertible,
+
+            // Data events — revertible
+            Event::CheckboxToggled { .. } => Revertibility::Revertible,
+            Event::InputRecorded { .. } => Revertibility::Revertible,
+            Event::NoteAdded { .. } => Revertibility::Revertible,
+
+            // Attachment — revertible (file stays on disk)
+            Event::AttachmentAdded { .. } => Revertibility::Revertible,
+
+            // Revert marker — not revertible
+            Event::EventReverted { .. } => Revertibility::RevertMarker,
+        }
+    }
+
+    /// Human-readable description of this event for UI display.
+    ///
+    /// This match is exhaustive — adding a new `Event` variant without
+    /// updating this method will cause a compile error.
+    pub fn description(&self) -> String {
+        match self {
+            Event::ExecutionStarted { procedure_id, .. } => {
+                format!("Started execution of {procedure_id}")
+            }
+            Event::ExecutionCompleted { status, .. } => {
+                format!("Completed execution: {status:?}")
+            }
+            Event::ExecutionAborted { reason, .. } => {
+                format!("Aborted execution: {reason}")
+            }
+            Event::StepAdded { heading, .. } => format!("Added step: {heading}"),
+            Event::StepStarted { step_heading, .. } => {
+                format!("Started step: {step_heading}")
+            }
+            Event::StepCompleted { step_heading, .. } => {
+                format!("Completed step: {step_heading}")
+            }
+            Event::StepSkipped {
+                step_heading,
+                reason,
+                ..
+            } => {
+                format!("Skipped step: {step_heading} ({reason})")
+            }
+            Event::CheckboxToggled {
+                step_heading,
+                text,
+                checked,
+                ..
+            } => {
+                let verb = if *checked { "Checked" } else { "Unchecked" };
+                format!("{verb} checkbox '{text}' in {step_heading}")
+            }
+            Event::InputRecorded {
+                step_heading,
+                label,
+                value,
+                ..
+            } => {
+                format!("Recorded {label} = {value} in {step_heading}")
+            }
+            Event::NoteAdded {
+                text, step_heading, ..
+            } => {
+                let scope = step_heading
+                    .as_ref()
+                    .map(|h| format!(" to {h}"))
+                    .unwrap_or_default();
+                let truncated = if text.len() > 50 {
+                    format!("{}...", &text[..50])
+                } else {
+                    text.clone()
+                };
+                format!("Added note{scope}: {truncated}")
+            }
+            Event::AttachmentAdded { filename, .. } => {
+                format!("Added attachment: {filename}")
+            }
+            Event::EventReverted {
+                reverted_event_index,
+                reason,
+                ..
+            } => {
+                format!("Reverted event #{reverted_event_index}: {reason}")
+            }
+        }
+    }
 }

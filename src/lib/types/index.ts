@@ -59,6 +59,16 @@ export interface ExecutionSummary {
   procedure_version: string;
   status: string;
   steps: StepSummary[];
+  event_history: EventHistoryEntry[];
+}
+
+export interface EventHistoryEntry {
+  index: number;
+  event_type: string;
+  at: string;
+  description: string;
+  revertible: boolean;
+  reverted: boolean;
 }
 
 export interface StepSummary {
@@ -115,4 +125,5 @@ export type ExecutionAction =
       content_type: string;
     }
   | { action: "complete"; status: "pass" | "fail" | "aborted" }
-  | { action: "abort"; reason: string };
+  | { action: "abort"; reason: string }
+  | { action: "revert_event"; event_index: number; reason: string };

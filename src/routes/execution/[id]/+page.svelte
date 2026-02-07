@@ -3,7 +3,7 @@
     import { onMount } from "svelte";
     import { goto } from "$app/navigation";
     import { executionStore } from "$lib/stores/execution.svelte";
-    import type { ExecutionAction } from "$lib/types";
+    import type { ExecutionAction, EventHistoryEntry } from "$lib/types";
     import StepCard from "$lib/components/StepCard.svelte";
     import AddStepDialog from "$lib/components/AddStepDialog.svelte";
 
@@ -30,6 +30,49 @@
     let totalSteps = $derived(summary?.steps.length ?? 0);
 
     let stepHeadings = $derived(summary?.steps.map((s) => s.heading) ?? []);
+
+    // Find the revertible execution-level finish event (completed or aborted).
+    let revertibleFinishEvent = $derived(
+        summary?.event_history.find(
+            (e) =>
+                e.revertible &&
+                !e.reverted &&
+                (e.event_type === "execution_completed" ||
+                    e.event_type === "execution_aborted"),
+        ),
+    );
+
+    // Event types that are scoped to a specific step.
+    const stepScopedEventTypes = new Set([
+        "step_started",
+        "step_completed",
+        "step_skipped",
+        "input_recorded",
+        "note_added",
+    ]);
+
+    // Build a map of step_heading -> revertible events for that step.
+    let revertibleEventsByStep = $derived.by(() => {
+        const map = new Map<string, EventHistoryEntry[]>();
+        if (!summary) return map;
+
+        for (const entry of summary.event_history) {
+            if (
+                entry.revertible &&
+                !entry.reverted &&
+                stepScopedEventTypes.has(entry.event_type)
+            ) {
+                for (const heading of stepHeadings) {
+                    if (entry.description.includes(heading)) {
+                        if (!map.has(heading)) map.set(heading, []);
+                        map.get(heading)!.push(entry);
+                        break;
+                    }
+                }
+            }
+        }
+        return map;
+    });
 
     async function handleAction(action: Record<string, unknown>) {
         await executionStore.act(action as ExecutionAction);
@@ -141,12 +184,27 @@
                 class:fail={summary.status === "fail"}
                 class:aborted={summary.status === "aborted"}
             >
-                Execution {summary.status === "pass"
-                    ? "passed"
-                    : summary.status === "fail"
-                      ? "failed"
-                      : "aborted"}
-                &mdash; {completedSteps}/{totalSteps} steps completed
+                <span>
+                    Execution {summary.status === "pass"
+                        ? "passed"
+                        : summary.status === "fail"
+                          ? "failed"
+                          : "aborted"}
+                    &mdash; {completedSteps}/{totalSteps} steps completed
+                </span>
+                {#if revertibleFinishEvent}
+                    <button
+                        class="btn btn-undo"
+                        onclick={() =>
+                            handleAction({
+                                action: "revert_event",
+                                event_index: revertibleFinishEvent.index,
+                                reason: "Reverted by operator",
+                            })}
+                    >
+                        Reopen Execution
+                    </button>
+                {/if}
             </div>
         {/if}
 
@@ -154,7 +212,8 @@
             {#each summary.steps as stepSummary}
                 <StepCard
                     {stepSummary}
-                    executionActive={isActive}
+                    executionActive={isActive ?? false}
+                    revertibleEvents={revertibleEventsByStep.get(stepSummary.heading) ?? []}
                     onaction={handleAction}
                 />
             {/each}
@@ -367,6 +426,10 @@
     }
 
     .finish-banner {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
         padding: 12px 16px;
         border-radius: 6px;
         font-weight: 600;
@@ -437,6 +500,16 @@
 
     .btn-danger:hover:not(:disabled) {
         background: #b71c1c;
+    }
+
+    .btn-undo {
+        background: #fff;
+        color: #6a1b9a;
+        border-color: #ce93d8;
+    }
+
+    .btn-undo:hover {
+        background: #f3e5f5;
     }
 
     /* Modal */

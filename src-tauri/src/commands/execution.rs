@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::state::{ActiveExecution, AppState};
-use procnote_core::event::types::{CompletionStatus, Event, ExecutionId};
+use procnote_core::event::types::{CompletionStatus, Event, ExecutionId, Revertibility};
 use procnote_core::event::{append_event, read_events};
 use procnote_core::execution::{ExecutionState, StepStatus};
 use procnote_core::template::parse_template;
@@ -16,6 +16,19 @@ pub struct ExecutionSummary {
     pub procedure_version: String,
     pub status: String,
     pub steps: Vec<StepSummary>,
+    pub event_history: Vec<EventHistoryEntry>,
+}
+
+/// A single entry in the event history, exposed to the frontend.
+#[derive(Debug, Serialize)]
+pub struct EventHistoryEntry {
+    pub index: usize,
+    pub event_type: String,
+    /// ISO 8601 timestamp string.
+    pub at: String,
+    pub description: String,
+    pub revertible: bool,
+    pub reverted: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -63,7 +76,7 @@ fn step_status_string(status: &StepStatus) -> String {
     }
 }
 
-fn summarize(state: &ExecutionState) -> ExecutionSummary {
+fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSummary {
     let steps = state
         .step_order
         .iter()
@@ -99,12 +112,83 @@ fn summarize(state: &ExecutionState) -> ExecutionSummary {
         })
         .collect();
 
+    let event_history = build_event_history(events.unwrap_or(&[]));
+
     ExecutionSummary {
         execution_id: state.execution_id.unwrap_or_default(),
         procedure_id: state.procedure_id.clone().unwrap_or_default(),
         procedure_version: state.procedure_version.clone().unwrap_or_default(),
         status: status_string(&state.status),
         steps,
+        event_history,
+    }
+}
+
+fn build_event_history(events: &[Event]) -> Vec<EventHistoryEntry> {
+    use std::collections::HashSet;
+
+    // Collect reverted indices.
+    let reverted_indices: HashSet<usize> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::EventReverted {
+                reverted_event_index,
+                ..
+            } => Some(*reverted_event_index),
+            _ => None,
+        })
+        .collect();
+
+    events
+        .iter()
+        .enumerate()
+        .map(|(index, event)| {
+            let revertible = event.revertibility() == Revertibility::Revertible
+                && !reverted_indices.contains(&index);
+            EventHistoryEntry {
+                index,
+                event_type: event_type_string(event),
+                at: event_at(event),
+                description: event.description(),
+                revertible,
+                reverted: reverted_indices.contains(&index),
+            }
+        })
+        .collect()
+}
+
+fn event_type_string(event: &Event) -> String {
+    match event {
+        Event::ExecutionStarted { .. } => "execution_started",
+        Event::ExecutionCompleted { .. } => "execution_completed",
+        Event::ExecutionAborted { .. } => "execution_aborted",
+        Event::StepAdded { .. } => "step_added",
+        Event::StepStarted { .. } => "step_started",
+        Event::StepCompleted { .. } => "step_completed",
+        Event::StepSkipped { .. } => "step_skipped",
+        Event::CheckboxToggled { .. } => "checkbox_toggled",
+        Event::InputRecorded { .. } => "input_recorded",
+        Event::NoteAdded { .. } => "note_added",
+        Event::AttachmentAdded { .. } => "attachment_added",
+        Event::EventReverted { .. } => "event_reverted",
+    }
+    .to_string()
+}
+
+fn event_at(event: &Event) -> String {
+    match event {
+        Event::ExecutionStarted { at, .. }
+        | Event::ExecutionCompleted { at, .. }
+        | Event::ExecutionAborted { at, .. }
+        | Event::StepAdded { at, .. }
+        | Event::StepStarted { at, .. }
+        | Event::StepCompleted { at, .. }
+        | Event::StepSkipped { at, .. }
+        | Event::CheckboxToggled { at, .. }
+        | Event::InputRecorded { at, .. }
+        | Event::NoteAdded { at, .. }
+        | Event::AttachmentAdded { at, .. }
+        | Event::EventReverted { at, .. } => at.to_rfc3339(),
     }
 }
 
@@ -136,7 +220,7 @@ pub fn start_execution(
         append_event(&log_path, event).map_err(|e| e.to_string())?;
     }
 
-    let summary = summarize(&exec_state);
+    let summary = summarize(&exec_state, Some(&events));
 
     // Store active execution.
     let mut executions = state.executions.lock().unwrap();
@@ -145,6 +229,7 @@ pub fn start_execution(
         ActiveExecution {
             state: exec_state,
             log_path,
+            events,
         },
     );
 
@@ -196,6 +281,10 @@ pub enum ExecutionAction {
     Abort {
         reason: String,
     },
+    RevertEvent {
+        event_index: usize,
+        reason: String,
+    },
 }
 
 /// Record an action on an active execution.
@@ -209,6 +298,25 @@ pub fn record_action(
     let active = executions
         .get_mut(&execution_id)
         .ok_or_else(|| format!("Execution not found: {execution_id}"))?;
+
+    // Revert is a special case: it rebuilds state from events.
+    if let ExecutionAction::RevertEvent {
+        event_index,
+        reason,
+    } = action
+    {
+        let revert_marker = ExecutionState::revert_event(&active.events, event_index, &reason)
+            .map_err(|e| e.to_string())?;
+
+        // Persist the revert marker.
+        append_event(&active.log_path, &revert_marker).map_err(|e| e.to_string())?;
+        active.events.push(revert_marker);
+
+        // Rebuild state from the full event log.
+        active.state = ExecutionState::from_events(&active.events).map_err(|e| e.to_string())?;
+
+        return Ok(summarize(&active.state, Some(&active.events)));
+    }
 
     let event: Event = match action {
         ExecutionAction::StartStep { step_heading } => active
@@ -269,12 +377,14 @@ pub fn record_action(
         ExecutionAction::Abort { reason } => {
             active.state.abort(&reason).map_err(|e| e.to_string())?
         }
+        ExecutionAction::RevertEvent { .. } => unreachable!("handled above"),
     };
 
     // Persist event.
     append_event(&active.log_path, &event).map_err(|e| e.to_string())?;
+    active.events.push(event);
 
-    Ok(summarize(&active.state))
+    Ok(summarize(&active.state, Some(&active.events)))
 }
 
 /// Get the current state of an execution.
@@ -288,7 +398,7 @@ pub fn get_execution_state(
         .get(&execution_id)
         .ok_or_else(|| format!("Execution not found: {execution_id}"))?;
 
-    Ok(summarize(&active.state))
+    Ok(summarize(&active.state, Some(&active.events)))
 }
 
 /// List all executions (active in memory + completed on disk).
@@ -299,7 +409,7 @@ pub fn list_executions(state: State<'_, AppState>) -> Result<Vec<ExecutionSummar
     // Return active in-memory executions.
     let mut summaries: Vec<ExecutionSummary> = executions
         .values()
-        .map(|active| summarize(&active.state))
+        .map(|active| summarize(&active.state, Some(&active.events)))
         .collect();
 
     // Also check disk for completed executions not in memory.
@@ -331,7 +441,7 @@ pub fn list_executions(state: State<'_, AppState>) -> Result<Vec<ExecutionSummar
             // Replay from disk.
             match read_events(&log_path) {
                 Ok(events) => match ExecutionState::from_events(&events) {
-                    Ok(exec_state) => summaries.push(summarize(&exec_state)),
+                    Ok(exec_state) => summaries.push(summarize(&exec_state, Some(&events))),
                     Err(e) => log::warn!("Failed to replay execution {exec_id}: {e}"),
                 },
                 Err(e) => log::warn!("Failed to read events for {exec_id}: {e}"),
