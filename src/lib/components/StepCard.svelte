@@ -86,6 +86,10 @@
         <span class="step-status-badge">{stepSummary.status}</span>
     </div>
 
+    {#if stepSummary.description}
+        <p class="step-description">{stepSummary.description}</p>
+    {/if}
+
     {#if stepSummary.checkboxes.length > 0}
         <div class="step-section">
             {#each stepSummary.checkboxes as checkbox}
@@ -238,6 +242,14 @@
         margin: 0;
         font-size: 15px;
         font-weight: 600;
+    }
+
+    .step-description {
+        margin: 0 0 4px;
+        font-size: 14px;
+        color: #444;
+        line-height: 1.5;
+        white-space: pre-line;
     }
 
     .step-status-badge {

@@ -20,6 +20,13 @@ requirement_traces:
 
 Connect PSU to DUT J1 connector. Set voltage to 5.0V. Enable output.
 
+### Some heading
+
+```python
+def example_function():
+    print("This is an example code block inside the procedure.")
+```
+
 ```inputs
 - id: current-draw
   label: "Measure current draw"

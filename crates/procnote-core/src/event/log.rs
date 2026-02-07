@@ -72,7 +72,6 @@ mod tests {
                 execution_id: id,
                 procedure_id: "TVT-001".to_string(),
                 procedure_version: "1.0".to_string(),
-                operator: "Nomura".to_string(),
             },
             Event::StepStarted {
                 at: now,
@@ -196,7 +195,6 @@ mod tests {
                 execution_id: id,
                 procedure_id: "P-001".to_string(),
                 procedure_version: "1.0".to_string(),
-                operator: "Op".to_string(),
             },
             Event::ExecutionCompleted {
                 at: now,
@@ -253,12 +251,6 @@ mod tests {
                 execution_id: id,
                 text: "Observation noted".to_string(),
                 step_heading: Some("Step 1".to_string()),
-            },
-            Event::DeviationRecorded {
-                at: now,
-                execution_id: id,
-                description: "Voltage was 4.9V instead of 5.0V".to_string(),
-                justification: "Within tolerance".to_string(),
             },
             Event::AttachmentAdded {
                 at: now,

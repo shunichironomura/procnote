@@ -14,7 +14,6 @@ pub struct ExecutionSummary {
     pub execution_id: ExecutionId,
     pub procedure_id: String,
     pub procedure_version: String,
-    pub operator: String,
     pub status: String,
     pub steps: Vec<StepSummary>,
 }
@@ -22,6 +21,7 @@ pub struct ExecutionSummary {
 #[derive(Debug, Serialize)]
 pub struct StepSummary {
     pub heading: String,
+    pub description: Option<String>,
     pub status: String,
     pub checkboxes: Vec<CheckboxState>,
     pub input_definitions: Vec<InputDefinition>,
@@ -88,6 +88,7 @@ fn summarize(state: &ExecutionState) -> ExecutionSummary {
                     .collect();
                 StepSummary {
                     heading: step.heading.clone(),
+                    description: step.description.clone(),
                     status: step_status_string(&step.status),
                     checkboxes,
                     input_definitions: step.input_definitions.clone(),
@@ -102,7 +103,6 @@ fn summarize(state: &ExecutionState) -> ExecutionSummary {
         execution_id: state.execution_id.unwrap_or_default(),
         procedure_id: state.procedure_id.clone().unwrap_or_default(),
         procedure_version: state.procedure_version.clone().unwrap_or_default(),
-        operator: state.operator.clone().unwrap_or_default(),
         status: status_string(&state.status),
         steps,
     }
@@ -113,15 +113,12 @@ fn summarize(state: &ExecutionState) -> ExecutionSummary {
 pub fn start_execution(
     state: State<'_, AppState>,
     template_path: String,
-    operator: String,
 ) -> Result<ExecutionSummary, String> {
     let source = std::fs::read_to_string(&template_path).map_err(|e| e.to_string())?;
     let template = parse_template(&source).map_err(|e| e.to_string())?;
 
     let mut exec_state = ExecutionState::new();
-    let events = exec_state
-        .start(&template, &operator)
-        .map_err(|e| e.to_string())?;
+    let events = exec_state.start(&template).map_err(|e| e.to_string())?;
 
     let execution_id = exec_state.execution_id.unwrap();
 
@@ -187,10 +184,6 @@ pub enum ExecutionAction {
         heading: String,
         description: Option<String>,
         after_step: Option<String>,
-    },
-    RecordDeviation {
-        description: String,
-        justification: String,
     },
     AddAttachment {
         filename: String,
@@ -261,13 +254,6 @@ pub fn record_action(
         } => active
             .state
             .add_step(&heading, description.as_deref(), after_step.as_deref())
-            .map_err(|e| e.to_string())?,
-        ExecutionAction::RecordDeviation {
-            description,
-            justification,
-        } => active
-            .state
-            .record_deviation(&description, &justification)
             .map_err(|e| e.to_string())?,
         ExecutionAction::AddAttachment {
             filename,

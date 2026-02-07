@@ -5,10 +5,8 @@
     import { executionStore } from "$lib/stores/execution.svelte";
     import type { ExecutionAction } from "$lib/types";
     import StepCard from "$lib/components/StepCard.svelte";
-    import DeviationDialog from "$lib/components/DeviationDialog.svelte";
     import AddStepDialog from "$lib/components/AddStepDialog.svelte";
 
-    let showDeviationDialog = $state(false);
     let showAddStepDialog = $state(false);
     let showCompleteDialog = $state(false);
     let showAbortDialog = $state(false);
@@ -35,15 +33,6 @@
 
     async function handleAction(action: Record<string, unknown>) {
         await executionStore.act(action as ExecutionAction);
-    }
-
-    async function recordDeviation(description: string, justification: string) {
-        await executionStore.act({
-            action: "record_deviation",
-            description,
-            justification,
-        });
-        showDeviationDialog = false;
     }
 
     async function addStep(
@@ -98,7 +87,7 @@
                 <div class="header-info">
                     <h2 class="procedure-title">{summary.procedure_id}</h2>
                     <span class="procedure-meta">
-                        v{summary.procedure_version} &middot; Operator: {summary.operator}
+                        v{summary.procedure_version}
                     </span>
                 </div>
             </div>
@@ -128,12 +117,6 @@
                     onclick={() => (showAddStepDialog = true)}
                 >
                     + Add Step
-                </button>
-                <button
-                    class="btn btn-secondary"
-                    onclick={() => (showDeviationDialog = true)}
-                >
-                    Record Deviation
                 </button>
                 <div class="toolbar-spacer"></div>
                 <button
@@ -178,13 +161,6 @@
         </div>
     {/if}
 </div>
-
-{#if showDeviationDialog}
-    <DeviationDialog
-        onconfirm={recordDeviation}
-        oncancel={() => (showDeviationDialog = false)}
-    />
-{/if}
 
 {#if showAddStepDialog}
     <AddStepDialog

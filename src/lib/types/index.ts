@@ -57,13 +57,13 @@ export interface ExecutionSummary {
   execution_id: string;
   procedure_id: string;
   procedure_version: string;
-  operator: string;
   status: string;
   steps: StepSummary[];
 }
 
 export interface StepSummary {
   heading: string;
+  description?: string;
   status: string;
   checkboxes: CheckboxState[];
   input_definitions: InputDefinition[];
@@ -108,7 +108,6 @@ export type ExecutionAction =
       description?: string;
       after_step?: string;
     }
-  | { action: "record_deviation"; description: string; justification: string }
   | {
       action: "add_attachment";
       filename: string;

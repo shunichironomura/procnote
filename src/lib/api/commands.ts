@@ -16,9 +16,8 @@ export async function loadTemplate(path: string): Promise<ProcedureTemplate> {
 
 export async function startExecution(
   templatePath: string,
-  operator: string,
 ): Promise<ExecutionSummary> {
-  return invoke("start_execution", { templatePath, operator });
+  return invoke("start_execution", { templatePath });
 }
 
 export async function recordAction(

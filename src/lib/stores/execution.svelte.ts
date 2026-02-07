@@ -15,11 +15,11 @@ class ExecutionStore {
     return s === "pass" || s === "fail" || s === "aborted";
   }
 
-  async start(templatePath: string, operator: string) {
+  async start(templatePath: string) {
     this.loading = true;
     this.error = null;
     try {
-      this.summary = await api.startExecution(templatePath, operator);
+      this.summary = await api.startExecution(templatePath);
     } catch (e) {
       this.error = String(e);
     } finally {
