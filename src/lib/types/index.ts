@@ -73,6 +73,8 @@ export interface EventHistoryEntry {
   description: string;
   revertible: boolean;
   reverted: boolean;
+  step_heading?: string;
+  label?: string;
 }
 
 export interface StepSummary {

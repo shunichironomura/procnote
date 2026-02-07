@@ -55,33 +55,15 @@
         ),
     );
 
-    // Event types that are scoped to a specific step.
-    const stepScopedEventTypes = new Set([
-        "step_started",
-        "step_completed",
-        "step_skipped",
-        "input_recorded",
-        "note_added",
-    ]);
-
     // Build a map of step_heading -> revertible events for that step.
     let revertibleEventsByStep = $derived.by(() => {
         const map = new Map<string, EventHistoryEntry[]>();
         if (!summary) return map;
 
         for (const entry of summary.event_history) {
-            if (
-                entry.revertible &&
-                !entry.reverted &&
-                stepScopedEventTypes.has(entry.event_type)
-            ) {
-                for (const heading of stepHeadings) {
-                    if (entry.description.includes(heading)) {
-                        if (!map.has(heading)) map.set(heading, []);
-                        map.get(heading)!.push(entry);
-                        break;
-                    }
-                }
+            if (entry.revertible && !entry.reverted && entry.step_heading) {
+                if (!map.has(entry.step_heading)) map.set(entry.step_heading, []);
+                map.get(entry.step_heading)!.push(entry);
             }
         }
         return map;

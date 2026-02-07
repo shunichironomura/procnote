@@ -39,16 +39,15 @@
             .at(-1),
     );
 
-    // Build a map of input label -> most recent revertible input_recorded or attachment_added event.
-    // Both use description format: "Recorded <label> = <value> in <step_heading>"
+    // Build a map of input label -> most recent revertible input/attachment event.
     let revertibleInputEvents = $derived.by(() => {
         const map = new Map<string, EventHistoryEntry>();
         for (const e of revertibleEvents) {
-            if (e.event_type === "input_recorded" || e.event_type === "attachment_added") {
-                const match = e.description.match(/^Recorded (.+?) = /);
-                if (match) {
-                    map.set(match[1], e);
-                }
+            if (
+                (e.event_type === "input_recorded" || e.event_type === "attachment_added") &&
+                e.label
+            ) {
+                map.set(e.label, e);
             }
         }
         return map;
