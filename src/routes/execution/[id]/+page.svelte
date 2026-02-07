@@ -178,9 +178,9 @@
                     <button
                         class="execution-dir"
                         onclick={openDirectory}
-                        title={summary.execution_dir}
+                        title="Open in Finder"
                     >
-                        {summary.execution_dir.split("/").pop()}
+                        {summary.execution_dir}
                     </button>
                 </div>
             </div>
