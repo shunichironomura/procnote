@@ -122,6 +122,10 @@ fn step_status_string(status: &StepStatus) -> String {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "large match over all event variants to build summary"
+)]
 fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSummary {
     use std::collections::{HashMap, HashSet};
 
@@ -314,7 +318,7 @@ fn build_event_history(events: &[Event]) -> Vec<EventHistoryEntry> {
         .collect()
 }
 
-/// Extract optional step_heading and label from an event.
+/// Extract optional `step_heading` and label from an event.
 fn event_step_and_label(event: &Event) -> (Option<String>, Option<String>) {
     match event {
         Event::StepStarted { step_heading, .. }
@@ -424,6 +428,10 @@ fn load_execution_from_disk(
 
 /// Start a new execution from a template file.
 #[tauri::command]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command handlers require owned parameters"
+)]
 pub fn start_execution(
     state: State<'_, AppState>,
     template_path: String,
@@ -527,6 +535,10 @@ pub enum ExecutionAction {
 
 /// Record an action on an active execution.
 #[tauri::command]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command handler with exhaustive action dispatch"
+)]
 pub fn record_action(
     state: State<'_, AppState>,
     execution_id: ExecutionId,
@@ -643,6 +655,10 @@ pub fn record_action(
 
 /// Get the current state of an execution.
 #[tauri::command]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command handlers require owned parameters"
+)]
 pub fn get_execution_state(
     state: State<'_, AppState>,
     execution_id: ExecutionId,
@@ -653,6 +669,10 @@ pub fn get_execution_state(
 
 /// List all executions by scanning the executions directory on disk.
 #[tauri::command]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command handlers require owned parameters"
+)]
 pub fn list_executions(state: State<'_, AppState>) -> Result<Vec<ExecutionSummary>, String> {
     let mut summaries = Vec::new();
 

@@ -138,7 +138,7 @@ fn collect_heading_text(events: &[Event<'_>], i: &mut usize) -> String {
     text
 }
 
-/// Collect the text of a task list item after the TaskListMarker, advancing `i`.
+/// Collect the text of a task list item after the `TaskListMarker`, advancing `i`.
 fn collect_task_text(events: &[Event<'_>], i: &mut usize) -> String {
     let mut text = String::new();
     *i += 1; // skip TaskListMarker
@@ -231,7 +231,9 @@ fn parse_inputs_block(code: &str) -> Result<Vec<InputDefinition>, ParseError> {
     let raw: Vec<RawInputDefinition> =
         serde_yaml_ng::from_str(code).map_err(|e| ParseError::InvalidInputsBlock(e.to_string()))?;
 
-    raw.into_iter().map(|r| r.try_into()).collect()
+    raw.into_iter()
+        .map(std::convert::TryInto::try_into)
+        .collect()
 }
 
 /// Intermediate representation for deserializing input definitions with flexible `expected`.
@@ -260,10 +262,10 @@ impl TryFrom<RawInputDefinition> for InputDefinition {
             Some(serde_yaml_ng::Value::Mapping(map)) => {
                 let min = map
                     .get(serde_yaml_ng::Value::String("min".to_string()))
-                    .and_then(|v| v.as_f64());
+                    .and_then(serde_yaml_ng::Value::as_f64);
                 let max = map
                     .get(serde_yaml_ng::Value::String("max".to_string()))
-                    .and_then(|v| v.as_f64());
+                    .and_then(serde_yaml_ng::Value::as_f64);
                 match (min, max) {
                     (Some(min), Some(max)) => Some(ExpectedValue::Range { min, max }),
                     _ => {
@@ -277,7 +279,7 @@ impl TryFrom<RawInputDefinition> for InputDefinition {
             Some(other) => Some(ExpectedValue::Exact(format!("{other:?}"))),
         };
 
-        Ok(InputDefinition {
+        Ok(Self {
             id: raw.id,
             label: raw.label,
             input_type: raw.input_type,
@@ -289,6 +291,7 @@ impl TryFrom<RawInputDefinition> for InputDefinition {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "unwrap is acceptable in tests")]
 mod tests {
     use super::*;
 

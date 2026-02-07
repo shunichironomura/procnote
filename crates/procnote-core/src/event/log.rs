@@ -53,6 +53,7 @@ pub fn read_events(path: &Path) -> Result<Vec<Event>, EventLogError> {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "unwrap is acceptable in tests")]
 mod tests {
     use super::*;
     use crate::event::types::{CompletionStatus, ExecutionId};
