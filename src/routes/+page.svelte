@@ -12,6 +12,19 @@
 	let loadingTemplates = $state(true);
 	let loadingExecutions = $state(true);
 	let error: string | null = $state(null);
+	let selectedProcedure: string = $state("all");
+
+	let procedures = $derived(
+		[...new Map(executions.map(e => [e.procedure_id, e.procedure_title])).entries()]
+			.map(([id, title]) => ({ id, title }))
+			.sort((a, b) => a.title.localeCompare(b.title))
+	);
+
+	let filteredExecutions = $derived(
+		selectedProcedure === "all"
+			? executions
+			: executions.filter(e => e.procedure_id === selectedProcedure)
+	);
 
 	onMount(async () => {
 		try {
@@ -59,9 +72,19 @@
 
 	{#if !loadingExecutions && executions.length > 0}
 		<section class="section">
-			<h2 class="section-title">Recent Executions</h2>
+			<div class="section-header">
+				<h2 class="section-title">Recent Executions</h2>
+				{#if procedures.length > 1}
+					<select bind:value={selectedProcedure} class="procedure-filter">
+						<option value="all">All procedures</option>
+						{#each procedures as proc}
+							<option value={proc.id}>{proc.title} ({proc.id})</option>
+						{/each}
+					</select>
+				{/if}
+			</div>
 			<div class="execution-list">
-				{#each executions as exec}
+				{#each filteredExecutions as exec}
 					<button class="execution-card" class:execution-active={exec.status === 'active'} onclick={() => resumeExecution(exec)}>
 						<div class="exec-header">
 							<span class="exec-name">{exec.name ?? exec.procedure_id}</span>
@@ -91,10 +114,30 @@
 		gap: 32px;
 	}
 
+	.section-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 16px;
+	}
+
+	.section-header .section-title {
+		margin: 0;
+	}
+
 	.section-title {
 		font-size: 16px;
 		font-weight: 600;
 		margin: 0 0 16px;
+		color: #333;
+	}
+
+	.procedure-filter {
+		font-size: 13px;
+		padding: 4px 8px;
+		border: 1px solid #ccc;
+		border-radius: 4px;
+		background: #fff;
 		color: #333;
 	}
 

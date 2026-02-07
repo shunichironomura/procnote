@@ -784,7 +784,7 @@ version: "0.1"
 
         // Both should be captured as checkboxes (the outer list is pure task list).
         assert!(
-            checkboxes.len() >= 1,
+            !checkboxes.is_empty(),
             "expected at least 1 checkbox: {checkboxes:?}"
         );
         assert!(
