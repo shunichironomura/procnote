@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { StepSummary } from "$lib/types";
+    import type { StepSummary, EventHistoryEntry } from "$lib/types";
     import CheckboxItem from "./CheckboxItem.svelte";
     import InputField from "./InputField.svelte";
     import NoteEditor from "./NoteEditor.svelte";
@@ -7,10 +7,12 @@
     let {
         stepSummary,
         executionActive = false,
+        revertibleEvents = [],
         onaction,
     }: {
         stepSummary: StepSummary;
         executionActive?: boolean;
+        revertibleEvents?: EventHistoryEntry[];
         onaction: (action: Record<string, unknown>) => void;
     } = $props();
 
@@ -22,6 +24,18 @@
 
     let showSkipDialog = $state(false);
     let skipReason = $state("");
+
+    // Find the most recent revertible step-status event (complete/skip/start).
+    let revertibleStatusEvent = $derived(
+        revertibleEvents
+            .filter(
+                (e) =>
+                    e.event_type === "step_completed" ||
+                    e.event_type === "step_skipped" ||
+                    e.event_type === "step_started",
+            )
+            .at(-1),
+    );
 
     function startStep() {
         onaction({ action: "start_step", step_heading: stepSummary.heading });
@@ -143,6 +157,19 @@
                     class="btn btn-muted"
                     onclick={() => (showSkipDialog = true)}>Skip</button
                 >
+            {/if}
+            {#if revertibleStatusEvent && (isCompleted || isSkipped)}
+                <button
+                    class="btn btn-undo"
+                    onclick={() =>
+                        onaction({
+                            action: "revert_event",
+                            event_index: revertibleStatusEvent.index,
+                            reason: "Reverted by operator",
+                        })}
+                >
+                    Undo {isCompleted ? "Complete" : "Skip"}
+                </button>
             {/if}
         </div>
     {/if}
@@ -313,6 +340,17 @@
 
     .btn-muted:hover {
         background: #f5f5f5;
+    }
+
+    .btn-undo {
+        background: #fff;
+        color: #6a1b9a;
+        border-color: #ce93d8;
+        margin-left: auto;
+    }
+
+    .btn-undo:hover {
+        background: #f3e5f5;
     }
 
     .btn-warn {

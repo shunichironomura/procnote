@@ -3,7 +3,7 @@
     import { onMount } from "svelte";
     import { goto } from "$app/navigation";
     import { executionStore } from "$lib/stores/execution.svelte";
-    import type { ExecutionAction } from "$lib/types";
+    import type { ExecutionAction, EventHistoryEntry } from "$lib/types";
     import StepCard from "$lib/components/StepCard.svelte";
     import AddStepDialog from "$lib/components/AddStepDialog.svelte";
 
@@ -30,6 +30,37 @@
     let totalSteps = $derived(summary?.steps.length ?? 0);
 
     let stepHeadings = $derived(summary?.steps.map((s) => s.heading) ?? []);
+
+    // Build a map of step_heading -> revertible events for that step.
+    let revertibleEventsByStep = $derived.by(() => {
+        const map = new Map<string, EventHistoryEntry[]>();
+        if (!summary) return map;
+
+        const stepEventTypes = new Set([
+            "step_started",
+            "step_completed",
+            "step_skipped",
+        ]);
+
+        for (const entry of summary.event_history) {
+            if (
+                entry.revertible &&
+                !entry.reverted &&
+                stepEventTypes.has(entry.event_type)
+            ) {
+                // Extract step_heading from description (e.g. "Completed step: Preconditions")
+                // A more robust approach: match against known step headings
+                for (const heading of stepHeadings) {
+                    if (entry.description.includes(heading)) {
+                        if (!map.has(heading)) map.set(heading, []);
+                        map.get(heading)!.push(entry);
+                        break;
+                    }
+                }
+            }
+        }
+        return map;
+    });
 
     async function handleAction(action: Record<string, unknown>) {
         await executionStore.act(action as ExecutionAction);
@@ -154,7 +185,8 @@
             {#each summary.steps as stepSummary}
                 <StepCard
                     {stepSummary}
-                    executionActive={isActive}
+                    executionActive={isActive ?? false}
+                    revertibleEvents={revertibleEventsByStep.get(stepSummary.heading) ?? []}
                     onaction={handleAction}
                 />
             {/each}

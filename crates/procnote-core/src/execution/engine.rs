@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::event::types::{CompletionStatus, Event, ExecutionId};
+use crate::event::types::{CompletionStatus, Event, ExecutionId, Revertibility};
 use crate::template::types::{InputDefinition, ProcedureTemplate, StepContent};
 
 /// Errors that can occur during execution state transitions.
@@ -25,6 +25,14 @@ pub enum ExecutionError {
     StepAlreadyFinished(String),
     #[error("duplicate step heading: {0}")]
     DuplicateStepHeading(String),
+    #[error("event index out of range: {0}")]
+    EventIndexOutOfRange(usize),
+    #[error("event at index {0} is not revertible")]
+    EventNotRevertible(usize),
+    #[error("event at index {0} has already been reverted")]
+    EventAlreadyReverted(usize),
+    #[error("reverting event at index {0} would produce an invalid state: {1}")]
+    RevertWouldInvalidateState(usize, String),
 }
 
 /// Status of the overall execution.
@@ -108,10 +116,33 @@ impl ExecutionState {
         }
     }
 
-    /// Reconstruct execution state by replaying a sequence of events.
+    /// Reconstruct execution state by replaying a sequence of events,
+    /// respecting `EventReverted` markers.
+    ///
+    /// This collects all reverted indices first, then replays only
+    /// non-reverted events. `EventReverted` events themselves are skipped.
     pub fn from_events(events: &[Event]) -> Result<Self, ExecutionError> {
+        // First pass: collect all reverted event indices.
+        let reverted_indices: HashSet<usize> = events
+            .iter()
+            .filter_map(|event| match event {
+                Event::EventReverted {
+                    reverted_event_index,
+                    ..
+                } => Some(*reverted_event_index),
+                _ => None,
+            })
+            .collect();
+
+        // Second pass: replay non-reverted, non-marker events.
         let mut state = Self::new();
-        for event in events {
+        for (index, event) in events.iter().enumerate() {
+            if reverted_indices.contains(&index) {
+                continue;
+            }
+            if matches!(event, Event::EventReverted { .. }) {
+                continue;
+            }
             state.apply(event)?;
         }
         Ok(state)
@@ -275,6 +306,10 @@ impl ExecutionState {
                     content_type: content_type.clone(),
                 });
             }
+
+            // EventReverted is handled at the from_events() level by skipping
+            // reverted events. It should not be applied directly.
+            Event::EventReverted { .. } => {}
         }
         Ok(())
     }
@@ -496,6 +531,66 @@ impl ExecutionState {
         };
         self.apply(&event)?;
         Ok(event)
+    }
+
+    // -- Revert --
+
+    /// Produce an `EventReverted` marker for the event at the given index.
+    ///
+    /// Validates that the event is revertible, not already reverted, and that
+    /// the resulting state would be consistent (via trial replay).
+    pub fn revert_event(
+        all_events: &[Event],
+        event_index: usize,
+        reason: &str,
+    ) -> Result<Event, ExecutionError> {
+        // Validate index is in range.
+        let target_event = all_events
+            .get(event_index)
+            .ok_or(ExecutionError::EventIndexOutOfRange(event_index))?;
+
+        // Validate the event is revertible.
+        match target_event.revertibility() {
+            Revertibility::Revertible => {}
+            Revertibility::NotRevertible | Revertibility::RevertMarker => {
+                return Err(ExecutionError::EventNotRevertible(event_index));
+            }
+        }
+
+        // Check it hasn't already been reverted.
+        let already_reverted = all_events.iter().any(|e| {
+            matches!(
+                e,
+                Event::EventReverted {
+                    reverted_event_index,
+                    ..
+                } if *reverted_event_index == event_index
+            )
+        });
+        if already_reverted {
+            return Err(ExecutionError::EventAlreadyReverted(event_index));
+        }
+
+        // Extract execution_id from the first event.
+        let execution_id = match &all_events[0] {
+            Event::ExecutionStarted { execution_id, .. } => *execution_id,
+            _ => return Err(ExecutionError::NotStarted),
+        };
+
+        let revert_marker = Event::EventReverted {
+            at: Utc::now(),
+            execution_id,
+            reverted_event_index: event_index,
+            reason: reason.to_string(),
+        };
+
+        // Validate by trial replay: append the marker and rebuild.
+        let mut trial_events = all_events.to_vec();
+        trial_events.push(revert_marker.clone());
+        Self::from_events(&trial_events)
+            .map_err(|e| ExecutionError::RevertWouldInvalidateState(event_index, e.to_string()))?;
+
+        Ok(revert_marker)
     }
 
     // -- Helpers --
@@ -773,6 +868,295 @@ mod tests {
         assert_eq!(
             result.unwrap_err(),
             ExecutionError::DuplicateStepHeading("Preconditions".to_string())
+        );
+    }
+
+    // -- Revert tests --
+
+    /// Helper: build events for a started-and-completed step scenario.
+    fn events_with_completed_step() -> Vec<Event> {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        let mut events: Vec<Event> = Vec::new();
+        events.extend(state.start(&template).unwrap());
+        // indices 0..3: ExecutionStarted + 3 StepAdded
+        events.push(state.start_step("Preconditions").unwrap()); // index 4
+        events.push(state.complete_step("Preconditions").unwrap()); // index 5
+        events
+    }
+
+    #[test]
+    fn test_revert_step_completed() {
+        let mut events = events_with_completed_step();
+        // Revert StepCompleted at index 5
+        let revert = ExecutionState::revert_event(&events, 5, "mistake").unwrap();
+        events.push(revert);
+
+        let state = ExecutionState::from_events(&events).unwrap();
+        // Step should be back to Active (StepStarted still applies)
+        assert_eq!(state.steps["Preconditions"].status, StepStatus::Active);
+    }
+
+    #[test]
+    fn test_revert_step_started() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        let mut events: Vec<Event> = Vec::new();
+        events.extend(state.start(&template).unwrap());
+        events.push(state.start_step("Preconditions").unwrap()); // index 4
+
+        let revert = ExecutionState::revert_event(&events, 4, "wrong step").unwrap();
+        events.push(revert);
+
+        let state = ExecutionState::from_events(&events).unwrap();
+        assert_eq!(state.steps["Preconditions"].status, StepStatus::Pending);
+    }
+
+    #[test]
+    fn test_revert_step_skipped() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        let mut events: Vec<Event> = Vec::new();
+        events.extend(state.start(&template).unwrap());
+        events.push(state.skip_step("Preconditions", "N/A").unwrap()); // index 4
+
+        let revert = ExecutionState::revert_event(&events, 4, "actually needed").unwrap();
+        events.push(revert);
+
+        let state = ExecutionState::from_events(&events).unwrap();
+        assert_eq!(state.steps["Preconditions"].status, StepStatus::Pending);
+    }
+
+    #[test]
+    fn test_revert_input_recorded() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        let mut events: Vec<Event> = Vec::new();
+        events.extend(state.start(&template).unwrap());
+        events.push(state.start_step("Preconditions").unwrap());
+        events.push(
+            state
+                .record_input("Preconditions", "Voltage", "5.0", Some("V"))
+                .unwrap(),
+        ); // index 5
+
+        let revert = ExecutionState::revert_event(&events, 5, "wrong value").unwrap();
+        events.push(revert);
+
+        let state = ExecutionState::from_events(&events).unwrap();
+        assert!(!state.steps["Preconditions"].inputs.contains_key("Voltage"));
+    }
+
+    #[test]
+    fn test_revert_note_added() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        let mut events: Vec<Event> = Vec::new();
+        events.extend(state.start(&template).unwrap());
+        events.push(state.add_note("oops", None).unwrap()); // index 4
+
+        let revert = ExecutionState::revert_event(&events, 4, "typo").unwrap();
+        events.push(revert);
+
+        let state = ExecutionState::from_events(&events).unwrap();
+        assert!(state.global_notes.is_empty());
+    }
+
+    #[test]
+    fn test_revert_checkbox_toggled() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        let mut events: Vec<Event> = Vec::new();
+        events.extend(state.start(&template).unwrap());
+        events.push(state.start_step("Preconditions").unwrap());
+        events.push(
+            state
+                .toggle_checkbox("Preconditions", "Check A", true)
+                .unwrap(),
+        ); // index 5
+
+        let revert = ExecutionState::revert_event(&events, 5, "undo check").unwrap();
+        events.push(revert);
+
+        let state = ExecutionState::from_events(&events).unwrap();
+        // The checkbox was dynamically added by the toggle; reverting removes it entirely
+        // since it was not in the template.
+        assert!(
+            !state.steps["Preconditions"]
+                .checkboxes
+                .iter()
+                .any(|(t, _)| t == "Check A")
+        );
+    }
+
+    #[test]
+    fn test_revert_execution_completed() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        let mut events: Vec<Event> = Vec::new();
+        events.extend(state.start(&template).unwrap());
+        events.push(state.complete(CompletionStatus::Pass).unwrap()); // index 4
+
+        let revert = ExecutionState::revert_event(&events, 4, "not done yet").unwrap();
+        events.push(revert);
+
+        let state = ExecutionState::from_events(&events).unwrap();
+        assert_eq!(state.status, ExecutionStatus::Active);
+    }
+
+    #[test]
+    fn test_revert_attachment_added() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        let mut events: Vec<Event> = Vec::new();
+        events.extend(state.start(&template).unwrap());
+        events.push(
+            state
+                .add_attachment("photo.jpg", "path/photo.jpg", "image/jpeg")
+                .unwrap(),
+        ); // index 4
+
+        let revert = ExecutionState::revert_event(&events, 4, "wrong file").unwrap();
+        events.push(revert);
+
+        let state = ExecutionState::from_events(&events).unwrap();
+        assert!(state.attachments.is_empty());
+    }
+
+    #[test]
+    fn test_cannot_revert_execution_started() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        let events: Vec<Event> = state.start(&template).unwrap();
+
+        let result = ExecutionState::revert_event(&events, 0, "nope");
+        assert_eq!(result.unwrap_err(), ExecutionError::EventNotRevertible(0));
+    }
+
+    #[test]
+    fn test_cannot_revert_step_added() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        let events: Vec<Event> = state.start(&template).unwrap();
+        // index 1 is the first StepAdded
+
+        let result = ExecutionState::revert_event(&events, 1, "nope");
+        assert_eq!(result.unwrap_err(), ExecutionError::EventNotRevertible(1));
+    }
+
+    #[test]
+    fn test_cannot_revert_already_reverted() {
+        let mut events = events_with_completed_step();
+        let revert = ExecutionState::revert_event(&events, 5, "first").unwrap();
+        events.push(revert);
+
+        let result = ExecutionState::revert_event(&events, 5, "second");
+        assert_eq!(result.unwrap_err(), ExecutionError::EventAlreadyReverted(5));
+    }
+
+    #[test]
+    fn test_cannot_revert_out_of_range() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        let events: Vec<Event> = state.start(&template).unwrap();
+
+        let result = ExecutionState::revert_event(&events, 999, "nope");
+        assert_eq!(
+            result.unwrap_err(),
+            ExecutionError::EventIndexOutOfRange(999)
+        );
+    }
+
+    #[test]
+    fn test_cannot_revert_step_started_when_completed_follows() {
+        let events = events_with_completed_step();
+        // Try to revert StepStarted (index 4), but StepCompleted (index 5) still exists.
+        // Replay without StepStarted would fail because StepCompleted requires Active status.
+        let result = ExecutionState::revert_event(&events, 4, "nope");
+        assert!(matches!(
+            result.unwrap_err(),
+            ExecutionError::RevertWouldInvalidateState(4, _)
+        ));
+    }
+
+    #[test]
+    fn test_revert_then_redo_step() {
+        let mut events = events_with_completed_step();
+        // Revert StepCompleted at index 5
+        let revert = ExecutionState::revert_event(&events, 5, "redo").unwrap();
+        events.push(revert);
+
+        // Now rebuild state and complete the step again
+        let mut state = ExecutionState::from_events(&events).unwrap();
+        assert_eq!(state.steps["Preconditions"].status, StepStatus::Active);
+        events.push(state.complete_step("Preconditions").unwrap());
+
+        let final_state = ExecutionState::from_events(&events).unwrap();
+        assert_eq!(
+            final_state.steps["Preconditions"].status,
+            StepStatus::Completed
+        );
+    }
+
+    #[test]
+    fn test_revert_serialization_roundtrip() {
+        let mut events = events_with_completed_step();
+        let revert = ExecutionState::revert_event(&events, 5, "test reason").unwrap();
+        events.push(revert.clone());
+
+        // Serialize and deserialize
+        let json = serde_json::to_string(&revert).unwrap();
+        let deserialized: Event = serde_json::from_str(&json).unwrap();
+        assert_eq!(revert, deserialized);
+
+        // Rebuild state from deserialized events
+        let jsons: Vec<String> = events
+            .iter()
+            .map(|e| serde_json::to_string(e).unwrap())
+            .collect();
+        let deserialized_events: Vec<Event> = jsons
+            .iter()
+            .map(|j| serde_json::from_str(j).unwrap())
+            .collect();
+        let state = ExecutionState::from_events(&deserialized_events).unwrap();
+        assert_eq!(state.steps["Preconditions"].status, StepStatus::Active);
+    }
+
+    #[test]
+    fn test_from_events_with_interleaved_reverts() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        let mut events: Vec<Event> = Vec::new();
+        events.extend(state.start(&template).unwrap());
+
+        // Start and complete Preconditions
+        events.push(state.start_step("Preconditions").unwrap()); // index 4
+        events.push(state.complete_step("Preconditions").unwrap()); // index 5
+
+        // Start and complete Step 1
+        events.push(state.start_step("Step 1: Power On").unwrap()); // index 6
+        events.push(
+            state
+                .record_input("Step 1: Power On", "Current", "120", Some("mA"))
+                .unwrap(),
+        ); // index 7
+        events.push(state.complete_step("Step 1: Power On").unwrap()); // index 8
+
+        // Revert Step 1 completion (index 8)
+        let revert1 = ExecutionState::revert_event(&events, 8, "redo step 1").unwrap();
+        events.push(revert1);
+
+        // Also revert the input (index 7)
+        let revert2 = ExecutionState::revert_event(&events, 7, "wrong reading").unwrap();
+        events.push(revert2);
+
+        let rebuilt = ExecutionState::from_events(&events).unwrap();
+        assert_eq!(rebuilt.steps["Preconditions"].status, StepStatus::Completed);
+        assert_eq!(rebuilt.steps["Step 1: Power On"].status, StepStatus::Active);
+        assert!(
+            !rebuilt.steps["Step 1: Power On"]
+                .inputs
+                .contains_key("Current")
         );
     }
 }
