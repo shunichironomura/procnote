@@ -544,6 +544,7 @@ pub fn record_action(
     execution_id: ExecutionId,
     action: ExecutionAction,
 ) -> Result<ExecutionSummary, String> {
+    log::debug!("record_action: execution={execution_id}, action={action:?}");
     let (mut exec_state, mut events, log_path) =
         load_execution_from_disk(&state.executions_dir, execution_id)?;
 
