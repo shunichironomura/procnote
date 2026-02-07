@@ -24,8 +24,8 @@ build-frontend:
 
 # --- Check & Lint ---
 
-# Run all checks (fmt, clippy, svelte-check, tests)
-check-all: check-fmt check-clippy check-frontend test
+# Run all checks (fmt, clippy, svelte-check, type bindings, tests)
+check-all: check-fmt check-clippy check-frontend check-types test
 
 # Check Rust formatting
 check-fmt:
@@ -44,6 +44,17 @@ check-frontend:
 # Format Rust code
 fmt:
     cargo fmt --all
+
+# --- Type Bindings ---
+
+# Generate TypeScript type bindings from Rust types
+generate-types:
+    cargo test --workspace export_bindings_
+
+# Check that generated TypeScript types are up-to-date
+check-types:
+    cargo test --workspace export_bindings_
+    git diff --exit-code src/lib/types/generated/
 
 # --- Test ---
 

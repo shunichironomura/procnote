@@ -1,19 +1,23 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// A complete procedure template parsed from a Markdown file.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
 pub struct ProcedureTemplate {
     pub metadata: ProcedureMetadata,
     pub steps: Vec<Step>,
 }
 
 /// YAML frontmatter metadata for a procedure.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
 pub struct ProcedureMetadata {
     pub id: String,
     pub title: String,
     pub version: String,
     #[serde(default)]
+    #[ts(optional)]
     pub author: Option<String>,
     #[serde(default)]
     pub equipment: Vec<Equipment>,
@@ -22,21 +26,24 @@ pub struct ProcedureMetadata {
 }
 
 /// A piece of equipment referenced by the procedure.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
 pub struct Equipment {
     pub id: String,
     pub name: String,
 }
 
 /// A single step in the procedure (corresponds to a `## ` heading).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
 pub struct Step {
     pub heading: String,
     pub content: Vec<StepContent>,
 }
 
 /// Content items within a step.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
 #[serde(tag = "type")]
 pub enum StepContent {
     /// Free-form prose text (Markdown source).
@@ -48,22 +55,26 @@ pub enum StepContent {
 }
 
 /// Definition of an input field that operators fill in during execution.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
 pub struct InputDefinition {
     pub id: String,
     pub label: String,
     #[serde(rename = "type")]
     pub input_type: InputType,
     #[serde(default)]
+    #[ts(optional)]
     pub unit: Option<String>,
     #[serde(default)]
     pub options: Vec<String>,
     #[serde(default)]
+    #[ts(optional)]
     pub expected: Option<ExpectedValue>,
 }
 
 /// The type of input an operator provides.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
 #[serde(rename_all = "lowercase")]
 pub enum InputType {
     Measurement,
@@ -73,7 +84,8 @@ pub enum InputType {
 }
 
 /// Expected value for validation — either a range or an exact match.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
 #[serde(untagged)]
 pub enum ExpectedValue {
     Range { min: f64, max: f64 },

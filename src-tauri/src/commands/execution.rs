@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tauri::State;
+use ts_rs::TS;
 
 use crate::state::AppState;
 use procnote_core::event::types::{CompletionStatus, Event, ExecutionId, Revertibility};
@@ -12,24 +13,29 @@ use procnote_core::template::parse_template;
 use procnote_core::template::types::InputDefinition;
 
 /// Serializable execution state summary for the frontend.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
 pub struct ExecutionSummary {
     pub execution_id: ExecutionId,
+    #[ts(optional)]
     pub name: Option<String>,
     pub procedure_id: String,
     pub procedure_title: String,
     pub procedure_version: String,
     pub status: String,
     /// ISO 8601 timestamp of when the execution was started.
+    #[ts(optional)]
     pub started_at: Option<String>,
     /// ISO 8601 timestamp of when the execution was finished (completed/aborted).
+    #[ts(optional)]
     pub finished_at: Option<String>,
     pub steps: Vec<StepSummary>,
     pub event_history: Vec<EventHistoryEntry>,
 }
 
 /// A single entry in the event history, exposed to the frontend.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
 pub struct EventHistoryEntry {
     pub index: usize,
     pub event_type: String,
@@ -40,18 +46,23 @@ pub struct EventHistoryEntry {
     pub reverted: bool,
     /// Step heading for step-scoped events, if applicable.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub step_heading: Option<String>,
     /// Label for input/attachment events, if applicable.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub label: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
 pub struct StepSummary {
     pub heading: String,
+    #[ts(optional)]
     pub description: Option<String>,
     pub status: String,
     /// ISO 8601 timestamp of the most recent status change (started/completed/skipped).
+    #[ts(optional)]
     pub status_at: Option<String>,
     pub checkboxes: Vec<CheckboxState>,
     pub input_definitions: Vec<InputDefinition>,
@@ -59,27 +70,34 @@ pub struct StepSummary {
     pub notes: Vec<NoteState>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
 pub struct CheckboxState {
     pub text: String,
     pub checked: bool,
     /// ISO 8601 timestamp of the last toggle, if any.
+    #[ts(optional)]
     pub at: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
 pub struct InputState {
     pub label: String,
     pub value: String,
+    #[ts(optional)]
     pub unit: Option<String>,
     /// ISO 8601 timestamp of when the input was recorded.
+    #[ts(optional)]
     pub at: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
 pub struct NoteState {
     pub text: String,
     /// ISO 8601 timestamp of when the note was added.
+    #[ts(optional)]
     pub at: Option<String>,
 }
 
@@ -447,7 +465,8 @@ pub fn start_execution(
 }
 
 /// Action payload from the frontend for recording events.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, TS)]
+#[ts(export)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ExecutionAction {
     StartStep {
@@ -469,15 +488,19 @@ pub enum ExecutionAction {
         step_heading: String,
         label: String,
         value: String,
+        #[ts(optional)]
         unit: Option<String>,
     },
     AddNote {
         text: String,
+        #[ts(optional)]
         step_heading: Option<String>,
     },
     AddStep {
         heading: String,
+        #[ts(optional)]
         description: Option<String>,
+        #[ts(optional)]
         after_step: Option<String>,
     },
     AddAttachment {

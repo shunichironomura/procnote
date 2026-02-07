@@ -8,7 +8,8 @@ use crate::template::types::InputDefinition;
 pub type ExecutionId = Uuid;
 
 /// Completion status of an execution.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
+#[ts(export)]
 #[serde(rename_all = "lowercase")]
 pub enum CompletionStatus {
     Pass,
