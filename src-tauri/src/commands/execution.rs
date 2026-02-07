@@ -1,7 +1,9 @@
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::state::{ActiveExecution, AppState};
+use crate::state::AppState;
 use procnote_core::event::types::{CompletionStatus, Event, ExecutionId, Revertibility};
 use procnote_core::event::{append_event, read_events};
 use procnote_core::execution::{ExecutionState, StepStatus};
@@ -307,6 +309,21 @@ fn event_at(event: &Event) -> String {
     }
 }
 
+/// Load an execution from disk by replaying its event log.
+fn load_execution_from_disk(
+    executions_dir: &Path,
+    execution_id: ExecutionId,
+) -> Result<(ExecutionState, Vec<Event>, std::path::PathBuf), String> {
+    let exec_dir = executions_dir.join(execution_id.to_string());
+    let log_path = exec_dir.join("events.jsonl");
+    if !log_path.exists() {
+        return Err(format!("Execution not found: {execution_id}"));
+    }
+    let events = read_events(&log_path).map_err(|e| e.to_string())?;
+    let state = ExecutionState::from_events(&events).map_err(|e| e.to_string())?;
+    Ok((state, events, log_path))
+}
+
 /// Start a new execution from a template file.
 #[tauri::command]
 pub fn start_execution(
@@ -335,20 +352,7 @@ pub fn start_execution(
         append_event(&log_path, event).map_err(|e| e.to_string())?;
     }
 
-    let summary = summarize(&exec_state, Some(&events));
-
-    // Store active execution.
-    let mut executions = state.executions.lock().unwrap();
-    executions.insert(
-        execution_id,
-        ActiveExecution {
-            state: exec_state,
-            log_path,
-            events,
-        },
-    );
-
-    Ok(summary)
+    Ok(summarize(&exec_state, Some(&events)))
 }
 
 /// Action payload from the frontend for recording events.
@@ -409,10 +413,8 @@ pub fn record_action(
     execution_id: ExecutionId,
     action: ExecutionAction,
 ) -> Result<ExecutionSummary, String> {
-    let mut executions = state.executions.lock().unwrap();
-    let active = executions
-        .get_mut(&execution_id)
-        .ok_or_else(|| format!("Execution not found: {execution_id}"))?;
+    let (mut exec_state, mut events, log_path) =
+        load_execution_from_disk(&state.executions_dir, execution_id)?;
 
     // Revert is a special case: it rebuilds state from events.
     if let ExecutionAction::RevertEvent {
@@ -420,41 +422,37 @@ pub fn record_action(
         reason,
     } = action
     {
-        let revert_marker = ExecutionState::revert_event(&active.events, event_index, &reason)
+        let revert_marker = ExecutionState::revert_event(&events, event_index, &reason)
             .map_err(|e| e.to_string())?;
 
         // Persist the revert marker.
-        append_event(&active.log_path, &revert_marker).map_err(|e| e.to_string())?;
-        active.events.push(revert_marker);
+        append_event(&log_path, &revert_marker).map_err(|e| e.to_string())?;
+        events.push(revert_marker);
 
         // Rebuild state from the full event log.
-        active.state = ExecutionState::from_events(&active.events).map_err(|e| e.to_string())?;
+        let exec_state = ExecutionState::from_events(&events).map_err(|e| e.to_string())?;
 
-        return Ok(summarize(&active.state, Some(&active.events)));
+        return Ok(summarize(&exec_state, Some(&events)));
     }
 
     let event: Event = match action {
-        ExecutionAction::StartStep { step_heading } => active
-            .state
+        ExecutionAction::StartStep { step_heading } => exec_state
             .start_step(&step_heading)
             .map_err(|e| e.to_string())?,
-        ExecutionAction::CompleteStep { step_heading } => active
-            .state
+        ExecutionAction::CompleteStep { step_heading } => exec_state
             .complete_step(&step_heading)
             .map_err(|e| e.to_string())?,
         ExecutionAction::SkipStep {
             step_heading,
             reason,
-        } => active
-            .state
+        } => exec_state
             .skip_step(&step_heading, &reason)
             .map_err(|e| e.to_string())?,
         ExecutionAction::ToggleCheckbox {
             step_heading,
             text,
             checked,
-        } => active
-            .state
+        } => exec_state
             .toggle_checkbox(&step_heading, &text, checked)
             .map_err(|e| e.to_string())?,
         ExecutionAction::RecordInput {
@@ -462,44 +460,40 @@ pub fn record_action(
             label,
             value,
             unit,
-        } => active
-            .state
+        } => exec_state
             .record_input(&step_heading, &label, &value, unit.as_deref())
             .map_err(|e| e.to_string())?,
-        ExecutionAction::AddNote { text, step_heading } => active
-            .state
+        ExecutionAction::AddNote { text, step_heading } => exec_state
             .add_note(&text, step_heading.as_deref())
             .map_err(|e| e.to_string())?,
         ExecutionAction::AddStep {
             heading,
             description,
             after_step,
-        } => active
-            .state
+        } => exec_state
             .add_step(&heading, description.as_deref(), after_step.as_deref())
             .map_err(|e| e.to_string())?,
         ExecutionAction::AddAttachment {
             filename,
             path,
             content_type,
-        } => active
-            .state
+        } => exec_state
             .add_attachment(&filename, &path, &content_type)
             .map_err(|e| e.to_string())?,
         ExecutionAction::Complete { status } => {
-            active.state.complete(status).map_err(|e| e.to_string())?
+            exec_state.complete(status).map_err(|e| e.to_string())?
         }
         ExecutionAction::Abort { reason } => {
-            active.state.abort(&reason).map_err(|e| e.to_string())?
+            exec_state.abort(&reason).map_err(|e| e.to_string())?
         }
         ExecutionAction::RevertEvent { .. } => unreachable!("handled above"),
     };
 
     // Persist event.
-    append_event(&active.log_path, &event).map_err(|e| e.to_string())?;
-    active.events.push(event);
+    append_event(&log_path, &event).map_err(|e| e.to_string())?;
+    events.push(event);
 
-    Ok(summarize(&active.state, Some(&active.events)))
+    Ok(summarize(&exec_state, Some(&events)))
 }
 
 /// Get the current state of an execution.
@@ -508,59 +502,40 @@ pub fn get_execution_state(
     state: State<'_, AppState>,
     execution_id: ExecutionId,
 ) -> Result<ExecutionSummary, String> {
-    let executions = state.executions.lock().unwrap();
-    let active = executions
-        .get(&execution_id)
-        .ok_or_else(|| format!("Execution not found: {execution_id}"))?;
-
-    Ok(summarize(&active.state, Some(&active.events)))
+    let (exec_state, events, _) = load_execution_from_disk(&state.executions_dir, execution_id)?;
+    Ok(summarize(&exec_state, Some(&events)))
 }
 
-/// List all executions (active in memory + completed on disk).
+/// List all executions by scanning the executions directory on disk.
 #[tauri::command]
 pub fn list_executions(state: State<'_, AppState>) -> Result<Vec<ExecutionSummary>, String> {
-    let executions = state.executions.lock().unwrap();
+    let mut summaries = Vec::new();
 
-    // Return active in-memory executions.
-    let mut summaries: Vec<ExecutionSummary> = executions
-        .values()
-        .map(|active| summarize(&active.state, Some(&active.events)))
-        .collect();
+    if !state.executions_dir.exists() {
+        return Ok(summaries);
+    }
 
-    // Also check disk for completed executions not in memory.
-    if state.executions_dir.exists() {
-        let entries = std::fs::read_dir(&state.executions_dir).map_err(|e| e.to_string())?;
-        for entry in entries {
-            let entry = entry.map_err(|e| e.to_string())?;
-            let dir_path = entry.path();
-            if !dir_path.is_dir() {
-                continue;
+    let entries = std::fs::read_dir(&state.executions_dir).map_err(|e| e.to_string())?;
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let dir_path = entry.path();
+        if !dir_path.is_dir() {
+            continue;
+        }
+        // Parse the directory name as UUID.
+        let dir_name = dir_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+        let exec_id: ExecutionId = match dir_name.parse() {
+            Ok(id) => id,
+            Err(_) => continue,
+        };
+        match load_execution_from_disk(&state.executions_dir, exec_id) {
+            Ok((exec_state, events, _)) => {
+                summaries.push(summarize(&exec_state, Some(&events)));
             }
-            let log_path = dir_path.join("events.jsonl");
-            if !log_path.exists() {
-                continue;
-            }
-            // Parse the directory name as UUID.
-            let dir_name = dir_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or_default();
-            let exec_id: ExecutionId = match dir_name.parse() {
-                Ok(id) => id,
-                Err(_) => continue,
-            };
-            // Skip if already in memory.
-            if executions.contains_key(&exec_id) {
-                continue;
-            }
-            // Replay from disk.
-            match read_events(&log_path) {
-                Ok(events) => match ExecutionState::from_events(&events) {
-                    Ok(exec_state) => summaries.push(summarize(&exec_state, Some(&events))),
-                    Err(e) => log::warn!("Failed to replay execution {exec_id}: {e}"),
-                },
-                Err(e) => log::warn!("Failed to read events for {exec_id}: {e}"),
-            }
+            Err(e) => log::warn!("Failed to load execution {exec_id}: {e}"),
         }
     }
 
