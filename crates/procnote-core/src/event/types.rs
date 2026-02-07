@@ -109,6 +109,13 @@ pub enum Event {
         content_type: String,
     },
 
+    // -- Name --
+    ExecutionRenamed {
+        at: DateTime<Utc>,
+        execution_id: ExecutionId,
+        name: String,
+    },
+
     // -- Revert --
     /// Marks a previously recorded event as reverted.
     /// State is rebuilt by replaying all events, skipping reverted ones.
@@ -160,6 +167,9 @@ impl Event {
 
             // Attachment — revertible (file stays on disk)
             Event::AttachmentAdded { .. } => Revertibility::Revertible,
+
+            // Name — revertible
+            Event::ExecutionRenamed { .. } => Revertibility::Revertible,
 
             // Revert marker — not revertible
             Event::EventReverted { .. } => Revertibility::RevertMarker,
@@ -228,6 +238,9 @@ impl Event {
             }
             Event::AttachmentAdded { filename, .. } => {
                 format!("Added attachment: {filename}")
+            }
+            Event::ExecutionRenamed { name, .. } => {
+                format!("Renamed execution to: {name}")
             }
             Event::EventReverted {
                 reverted_event_index,

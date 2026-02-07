@@ -84,6 +84,7 @@ pub struct ExecutionState {
     pub execution_id: Option<ExecutionId>,
     pub procedure_id: Option<String>,
     pub procedure_version: Option<String>,
+    pub name: Option<String>,
 
     pub status: ExecutionStatus,
     /// Ordered step headings (preserves insertion order).
@@ -108,6 +109,7 @@ impl ExecutionState {
             execution_id: None,
             procedure_id: None,
             procedure_version: None,
+            name: None,
             status: ExecutionStatus::Pending,
             step_order: Vec::new(),
             steps: HashMap::new(),
@@ -307,6 +309,13 @@ impl ExecutionState {
                 });
             }
 
+            Event::ExecutionRenamed { name, .. } => {
+                if self.execution_id.is_none() {
+                    return Err(ExecutionError::NotStarted);
+                }
+                self.name = Some(name.clone());
+            }
+
             // EventReverted is handled at the from_events() level by skipping
             // reverted events. It should not be applied directly.
             Event::EventReverted { .. } => {}
@@ -335,6 +344,18 @@ impl ExecutionState {
         };
         self.apply(&started)?;
         events.push(started);
+
+        // Auto-generate a name for the execution.
+        let auto_name = names::Generator::default()
+            .next()
+            .unwrap_or_else(|| format!("execution-{}", &execution_id.to_string()[..8]));
+        let named = Event::ExecutionRenamed {
+            at: now,
+            execution_id,
+            name: auto_name,
+        };
+        self.apply(&named)?;
+        events.push(named);
 
         // Add steps from the template, including checkboxes and input definitions.
         for step in &template.steps {
@@ -373,6 +394,20 @@ impl ExecutionState {
         }
 
         Ok(events)
+    }
+
+    /// Rename the execution.
+    ///
+    /// Unlike most actions, this works on both active and finished executions
+    /// (it's metadata, not a state transition).
+    pub fn rename(&mut self, name: &str) -> Result<Event, ExecutionError> {
+        let event = Event::ExecutionRenamed {
+            at: Utc::now(),
+            execution_id: self.require_execution_id()?,
+            name: name.to_string(),
+        };
+        self.apply(&event)?;
+        Ok(event)
     }
 
     /// Add a new step during execution.
@@ -658,13 +693,45 @@ mod tests {
         let mut state = ExecutionState::new();
         let events = state.start(&template).unwrap();
 
-        // 1 ExecutionStarted + 3 StepAdded
-        assert_eq!(events.len(), 4);
+        // 1 ExecutionStarted + 1 ExecutionRenamed + 3 StepAdded
+        assert_eq!(events.len(), 5);
         assert_eq!(state.status, ExecutionStatus::Active);
+        assert!(state.name.is_some());
         assert_eq!(state.step_order.len(), 3);
         assert_eq!(state.step_order[0], "Preconditions");
         assert_eq!(state.step_order[1], "Step 1: Power On");
         assert_eq!(state.step_order[2], "Postconditions");
+    }
+
+    #[test]
+    fn test_rename_execution() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        state.start(&template).unwrap();
+
+        let original_name = state.name.clone().unwrap();
+        state.rename("my-custom-name").unwrap();
+        assert_eq!(state.name.as_deref(), Some("my-custom-name"));
+        assert_ne!(state.name.as_deref(), Some(original_name.as_str()));
+    }
+
+    #[test]
+    fn test_rename_finished_execution() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        state.start(&template).unwrap();
+        state.complete(CompletionStatus::Pass).unwrap();
+
+        // Renaming should work even after completion.
+        state.rename("post-finish-name").unwrap();
+        assert_eq!(state.name.as_deref(), Some("post-finish-name"));
+    }
+
+    #[test]
+    fn test_cannot_rename_before_start() {
+        let mut state = ExecutionState::new();
+        let result = state.rename("some-name");
+        assert_eq!(result.unwrap_err(), ExecutionError::NotStarted);
     }
 
     #[test]
@@ -879,17 +946,17 @@ mod tests {
         let mut state = ExecutionState::new();
         let mut events: Vec<Event> = Vec::new();
         events.extend(state.start(&template).unwrap());
-        // indices 0..3: ExecutionStarted + 3 StepAdded
-        events.push(state.start_step("Preconditions").unwrap()); // index 4
-        events.push(state.complete_step("Preconditions").unwrap()); // index 5
+        // indices 0..4: ExecutionStarted + ExecutionRenamed + 3 StepAdded
+        events.push(state.start_step("Preconditions").unwrap()); // index 5
+        events.push(state.complete_step("Preconditions").unwrap()); // index 6
         events
     }
 
     #[test]
     fn test_revert_step_completed() {
         let mut events = events_with_completed_step();
-        // Revert StepCompleted at index 5
-        let revert = ExecutionState::revert_event(&events, 5, "mistake").unwrap();
+        // Revert StepCompleted at index 6
+        let revert = ExecutionState::revert_event(&events, 6, "mistake").unwrap();
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
@@ -903,9 +970,9 @@ mod tests {
         let mut state = ExecutionState::new();
         let mut events: Vec<Event> = Vec::new();
         events.extend(state.start(&template).unwrap());
-        events.push(state.start_step("Preconditions").unwrap()); // index 4
+        events.push(state.start_step("Preconditions").unwrap()); // index 5
 
-        let revert = ExecutionState::revert_event(&events, 4, "wrong step").unwrap();
+        let revert = ExecutionState::revert_event(&events, 5, "wrong step").unwrap();
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
@@ -918,9 +985,9 @@ mod tests {
         let mut state = ExecutionState::new();
         let mut events: Vec<Event> = Vec::new();
         events.extend(state.start(&template).unwrap());
-        events.push(state.skip_step("Preconditions", "N/A").unwrap()); // index 4
+        events.push(state.skip_step("Preconditions", "N/A").unwrap()); // index 5
 
-        let revert = ExecutionState::revert_event(&events, 4, "actually needed").unwrap();
+        let revert = ExecutionState::revert_event(&events, 5, "actually needed").unwrap();
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
@@ -938,9 +1005,9 @@ mod tests {
             state
                 .record_input("Preconditions", "Voltage", "5.0", Some("V"))
                 .unwrap(),
-        ); // index 5
+        ); // index 6
 
-        let revert = ExecutionState::revert_event(&events, 5, "wrong value").unwrap();
+        let revert = ExecutionState::revert_event(&events, 6, "wrong value").unwrap();
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
@@ -953,9 +1020,9 @@ mod tests {
         let mut state = ExecutionState::new();
         let mut events: Vec<Event> = Vec::new();
         events.extend(state.start(&template).unwrap());
-        events.push(state.add_note("oops", None).unwrap()); // index 4
+        events.push(state.add_note("oops", None).unwrap()); // index 5
 
-        let revert = ExecutionState::revert_event(&events, 4, "typo").unwrap();
+        let revert = ExecutionState::revert_event(&events, 5, "typo").unwrap();
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
@@ -973,9 +1040,9 @@ mod tests {
             state
                 .toggle_checkbox("Preconditions", "Check A", true)
                 .unwrap(),
-        ); // index 5
+        ); // index 6
 
-        let revert = ExecutionState::revert_event(&events, 5, "undo check").unwrap();
+        let revert = ExecutionState::revert_event(&events, 6, "undo check").unwrap();
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
@@ -995,9 +1062,9 @@ mod tests {
         let mut state = ExecutionState::new();
         let mut events: Vec<Event> = Vec::new();
         events.extend(state.start(&template).unwrap());
-        events.push(state.complete(CompletionStatus::Pass).unwrap()); // index 4
+        events.push(state.complete(CompletionStatus::Pass).unwrap()); // index 5
 
-        let revert = ExecutionState::revert_event(&events, 4, "not done yet").unwrap();
+        let revert = ExecutionState::revert_event(&events, 5, "not done yet").unwrap();
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
@@ -1014,9 +1081,9 @@ mod tests {
             state
                 .add_attachment("photo.jpg", "path/photo.jpg", "image/jpeg")
                 .unwrap(),
-        ); // index 4
+        ); // index 5
 
-        let revert = ExecutionState::revert_event(&events, 4, "wrong file").unwrap();
+        let revert = ExecutionState::revert_event(&events, 5, "wrong file").unwrap();
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
@@ -1038,20 +1105,20 @@ mod tests {
         let template = sample_template();
         let mut state = ExecutionState::new();
         let events: Vec<Event> = state.start(&template).unwrap();
-        // index 1 is the first StepAdded
+        // index 2 is the first StepAdded
 
-        let result = ExecutionState::revert_event(&events, 1, "nope");
-        assert_eq!(result.unwrap_err(), ExecutionError::EventNotRevertible(1));
+        let result = ExecutionState::revert_event(&events, 2, "nope");
+        assert_eq!(result.unwrap_err(), ExecutionError::EventNotRevertible(2));
     }
 
     #[test]
     fn test_cannot_revert_already_reverted() {
         let mut events = events_with_completed_step();
-        let revert = ExecutionState::revert_event(&events, 5, "first").unwrap();
+        let revert = ExecutionState::revert_event(&events, 6, "first").unwrap();
         events.push(revert);
 
-        let result = ExecutionState::revert_event(&events, 5, "second");
-        assert_eq!(result.unwrap_err(), ExecutionError::EventAlreadyReverted(5));
+        let result = ExecutionState::revert_event(&events, 6, "second");
+        assert_eq!(result.unwrap_err(), ExecutionError::EventAlreadyReverted(6));
     }
 
     #[test]
@@ -1070,20 +1137,20 @@ mod tests {
     #[test]
     fn test_cannot_revert_step_started_when_completed_follows() {
         let events = events_with_completed_step();
-        // Try to revert StepStarted (index 4), but StepCompleted (index 5) still exists.
+        // Try to revert StepStarted (index 5), but StepCompleted (index 6) still exists.
         // Replay without StepStarted would fail because StepCompleted requires Active status.
-        let result = ExecutionState::revert_event(&events, 4, "nope");
+        let result = ExecutionState::revert_event(&events, 5, "nope");
         assert!(matches!(
             result.unwrap_err(),
-            ExecutionError::RevertWouldInvalidateState(4, _)
+            ExecutionError::RevertWouldInvalidateState(5, _)
         ));
     }
 
     #[test]
     fn test_revert_then_redo_step() {
         let mut events = events_with_completed_step();
-        // Revert StepCompleted at index 5
-        let revert = ExecutionState::revert_event(&events, 5, "redo").unwrap();
+        // Revert StepCompleted at index 6
+        let revert = ExecutionState::revert_event(&events, 6, "redo").unwrap();
         events.push(revert);
 
         // Now rebuild state and complete the step again
@@ -1101,7 +1168,7 @@ mod tests {
     #[test]
     fn test_revert_serialization_roundtrip() {
         let mut events = events_with_completed_step();
-        let revert = ExecutionState::revert_event(&events, 5, "test reason").unwrap();
+        let revert = ExecutionState::revert_event(&events, 6, "test reason").unwrap();
         events.push(revert.clone());
 
         // Serialize and deserialize
@@ -1130,24 +1197,24 @@ mod tests {
         events.extend(state.start(&template).unwrap());
 
         // Start and complete Preconditions
-        events.push(state.start_step("Preconditions").unwrap()); // index 4
-        events.push(state.complete_step("Preconditions").unwrap()); // index 5
+        events.push(state.start_step("Preconditions").unwrap()); // index 5
+        events.push(state.complete_step("Preconditions").unwrap()); // index 6
 
         // Start and complete Step 1
-        events.push(state.start_step("Step 1: Power On").unwrap()); // index 6
+        events.push(state.start_step("Step 1: Power On").unwrap()); // index 7
         events.push(
             state
                 .record_input("Step 1: Power On", "Current", "120", Some("mA"))
                 .unwrap(),
-        ); // index 7
-        events.push(state.complete_step("Step 1: Power On").unwrap()); // index 8
+        ); // index 8
+        events.push(state.complete_step("Step 1: Power On").unwrap()); // index 9
 
-        // Revert Step 1 completion (index 8)
-        let revert1 = ExecutionState::revert_event(&events, 8, "redo step 1").unwrap();
+        // Revert Step 1 completion (index 9)
+        let revert1 = ExecutionState::revert_event(&events, 9, "redo step 1").unwrap();
         events.push(revert1);
 
-        // Also revert the input (index 7)
-        let revert2 = ExecutionState::revert_event(&events, 7, "wrong reading").unwrap();
+        // Also revert the input (index 8)
+        let revert2 = ExecutionState::revert_event(&events, 8, "wrong reading").unwrap();
         events.push(revert2);
 
         let rebuilt = ExecutionState::from_events(&events).unwrap();
