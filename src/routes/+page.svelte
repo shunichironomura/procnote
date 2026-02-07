@@ -4,6 +4,7 @@
 	import type { TemplateSummary, ExecutionSummary } from '$lib/types';
 	import * as api from '$lib/api/commands';
 	import { executionStore } from '$lib/stores/execution.svelte';
+	import { formatTimestamp } from '$lib/utils/format';
 	import TemplateList from '$lib/components/TemplateList.svelte';
 
 	let templates: TemplateSummary[] = $state([]);
@@ -70,6 +71,11 @@
 						</div>
 						<div class="exec-meta">
 							<span>v{exec.procedure_version}</span>
+							{#if exec.finished_at && exec.started_at}
+								<span class="exec-time">{formatTimestamp(exec.started_at)} — {formatTimestamp(exec.finished_at)}</span>
+							{:else if exec.started_at}
+								<span class="exec-time">Started {formatTimestamp(exec.started_at)}</span>
+							{/if}
 						</div>
 					</button>
 				{/each}
@@ -170,5 +176,9 @@
 		gap: 16px;
 		font-size: 12px;
 		color: #888;
+	}
+
+	.exec-time {
+		color: #999;
 	}
 </style>

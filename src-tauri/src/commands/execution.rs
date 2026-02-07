@@ -15,6 +15,10 @@ pub struct ExecutionSummary {
     pub procedure_id: String,
     pub procedure_version: String,
     pub status: String,
+    /// ISO 8601 timestamp of when the execution was started.
+    pub started_at: Option<String>,
+    /// ISO 8601 timestamp of when the execution was finished (completed/aborted).
+    pub finished_at: Option<String>,
     pub steps: Vec<StepSummary>,
     pub event_history: Vec<EventHistoryEntry>,
 }
@@ -108,6 +112,8 @@ fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSumma
 
     // Build timestamp lookup maps from non-reverted events.
     // Store as RFC3339 strings to avoid depending on chrono in this crate.
+    let mut started_at: Option<String> = None;
+    let mut finished_at: Option<String> = None;
     // step_heading -> most recent status-change timestamp
     let mut step_status_at: HashMap<&str, String> = HashMap::new();
     // (step_heading, checkbox_text) -> most recent toggle timestamp
@@ -124,6 +130,12 @@ fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSumma
             continue;
         }
         match event {
+            Event::ExecutionStarted { at, .. } => {
+                started_at = Some(at.to_rfc3339());
+            }
+            Event::ExecutionCompleted { at, .. } | Event::ExecutionAborted { at, .. } => {
+                finished_at = Some(at.to_rfc3339());
+            }
             Event::StepStarted {
                 at, step_heading, ..
             }
@@ -220,6 +232,8 @@ fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSumma
         procedure_id: state.procedure_id.clone().unwrap_or_default(),
         procedure_version: state.procedure_version.clone().unwrap_or_default(),
         status: status_string(&state.status),
+        started_at,
+        finished_at,
         steps,
         event_history,
     }

@@ -58,6 +58,8 @@ export interface ExecutionSummary {
   procedure_id: string;
   procedure_version: string;
   status: string;
+  started_at?: string;
+  finished_at?: string;
   steps: StepSummary[];
   event_history: EventHistoryEntry[];
 }
