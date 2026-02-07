@@ -13,6 +13,7 @@ use state::AppState;
 pub fn run(procedures_dir: Option<PathBuf>, executions_dir: Option<PathBuf>) {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(

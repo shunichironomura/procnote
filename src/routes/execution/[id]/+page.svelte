@@ -7,6 +7,7 @@
     import { formatTimestamp } from "$lib/utils/format";
     import StepCard from "$lib/components/StepCard.svelte";
     import AddStepDialog from "$lib/components/AddStepDialog.svelte";
+    import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
     let showAddStepDialog = $state(false);
     let showCompleteDialog = $state(false);
@@ -126,6 +127,12 @@
         executionStore.reset();
         goto("/");
     }
+
+    async function openDirectory() {
+        if (summary?.execution_dir) {
+            await revealItemInDir(summary.execution_dir);
+        }
+    }
 </script>
 
 <div class="execution-page">
@@ -168,6 +175,13 @@
                     <span class="procedure-meta">
                         {summary.procedure_title} ({summary.procedure_id}) v{summary.procedure_version}
                     </span>
+                    <button
+                        class="execution-dir"
+                        onclick={openDirectory}
+                        title={summary.execution_dir}
+                    >
+                        {summary.execution_dir.split("/").pop()}
+                    </button>
                 </div>
             </div>
             <div class="header-right">
@@ -432,6 +446,22 @@
     .procedure-meta {
         font-size: 13px;
         color: #888;
+    }
+
+    .execution-dir {
+        font-size: 12px;
+        font-family: monospace;
+        color: #888;
+        background: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        text-align: left;
+    }
+
+    .execution-dir:hover {
+        color: #1a73e8;
+        text-decoration: underline;
     }
 
     .header-right {
