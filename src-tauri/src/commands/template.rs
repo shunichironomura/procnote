@@ -16,6 +16,10 @@ pub struct TemplateSummary {
 
 /// List all procedure templates found in the procedures directory.
 #[tauri::command]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command handlers require owned parameters"
+)]
 pub fn list_templates(state: State<'_, AppState>) -> Result<Vec<TemplateSummary>, String> {
     let dir = &state.procedures_dir;
     if !dir.exists() {
@@ -40,7 +44,7 @@ pub fn list_templates(state: State<'_, AppState>) -> Result<Vec<TemplateSummary>
                     });
                 }
                 Err(e) => {
-                    log::warn!("Skipping invalid template {:?}: {}", path, e);
+                    log::warn!("Skipping invalid template {}: {e}", path.display());
                 }
             }
         }
@@ -51,6 +55,10 @@ pub fn list_templates(state: State<'_, AppState>) -> Result<Vec<TemplateSummary>
 
 /// Load and parse a specific procedure template.
 #[tauri::command]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command handlers require owned parameters"
+)]
 pub fn load_template(path: String) -> Result<ProcedureTemplate, String> {
     let source = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     parse_template(&source).map_err(|e| e.to_string())

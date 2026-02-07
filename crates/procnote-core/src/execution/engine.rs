@@ -61,9 +61,9 @@ pub struct StepState {
     pub heading: String,
     pub description: Option<String>,
     pub status: StepStatus,
-    /// Checkbox text -> checked state. Insertion order preserved by step_order.
+    /// Checkbox text -> checked state. Insertion order preserved by `step_order`.
     pub checkboxes: Vec<(String, bool)>,
-    /// Input definitions for this step (from template or StepAdded event).
+    /// Input definitions for this step (from template or `StepAdded` event).
     pub input_definitions: Vec<InputDefinition>,
     /// Recorded input values keyed by label.
     pub inputs: HashMap<String, RecordedInput>,
@@ -96,6 +96,7 @@ pub struct ExecutionState {
 
 impl ExecutionState {
     /// Create a new empty execution state.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             execution_id: None,
@@ -143,6 +144,10 @@ impl ExecutionState {
     }
 
     /// Apply a single event to the state (used by both replay and transitions).
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive match over all Event variants for state machine"
+    )]
     pub fn apply(&mut self, event: &Event) -> Result<(), ExecutionError> {
         match event {
             Event::ExecutionStarted {
@@ -234,8 +239,9 @@ impl ExecutionState {
                 self.require_active()?;
                 let step = self.get_step_mut(step_heading)?;
                 match step.status {
-                    StepStatus::Pending => step.status = StepStatus::Skipped,
-                    StepStatus::Active => step.status = StepStatus::Skipped,
+                    StepStatus::Pending | StepStatus::Active => {
+                        step.status = StepStatus::Skipped;
+                    }
                     StepStatus::Completed | StepStatus::Skipped => {
                         return Err(ExecutionError::StepAlreadyFinished(step_heading.clone()));
                     }
@@ -421,8 +427,8 @@ impl ExecutionState {
             at: Utc::now(),
             execution_id: self.require_execution_id()?,
             heading: heading.to_string(),
-            description: description.map(|s| s.to_string()),
-            after_step: after_step.map(|s| s.to_string()),
+            description: description.map(std::string::ToString::to_string),
+            after_step: after_step.map(std::string::ToString::to_string),
             checkboxes: Vec::new(),
             inputs: Vec::new(),
         };
@@ -501,7 +507,7 @@ impl ExecutionState {
             step_heading: step_heading.to_string(),
             label: label.to_string(),
             value: value.to_string(),
-            unit: unit.map(|s| s.to_string()),
+            unit: unit.map(std::string::ToString::to_string),
         };
         self.apply(&event)?;
         Ok(event)
@@ -518,7 +524,7 @@ impl ExecutionState {
             at: Utc::now(),
             execution_id: self.require_execution_id()?,
             text: text.to_string(),
-            step_heading: step_heading.map(|s| s.to_string()),
+            step_heading: step_heading.map(std::string::ToString::to_string),
         };
         self.apply(&event)?;
         Ok(event)
@@ -635,7 +641,7 @@ impl ExecutionState {
 
     // -- Helpers --
 
-    fn require_active(&self) -> Result<(), ExecutionError> {
+    const fn require_active(&self) -> Result<(), ExecutionError> {
         match &self.status {
             ExecutionStatus::Pending => Err(ExecutionError::NotStarted),
             ExecutionStatus::Active => Ok(()),
@@ -661,6 +667,7 @@ impl Default for ExecutionState {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "unwrap is acceptable in tests")]
 mod tests {
     use super::*;
     use crate::template::types::{ProcedureMetadata, ProcedureTemplate, Step};

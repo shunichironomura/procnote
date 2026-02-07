@@ -150,34 +150,26 @@ impl Event {
     ///
     /// This match is exhaustive — adding a new `Event` variant without
     /// updating this method will cause a compile error.
-    pub fn revertibility(&self) -> Revertibility {
+    #[must_use]
+    pub const fn revertibility(&self) -> Revertibility {
         match self {
-            // Lifecycle — not revertible
-            Event::ExecutionStarted { .. } => Revertibility::NotRevertible,
-            Event::ExecutionCompleted { .. } => Revertibility::Revertible,
-            Event::ExecutionAborted { .. } => Revertibility::Revertible,
+            // Lifecycle/structural — not revertible
+            Self::ExecutionStarted { .. } | Self::StepAdded { .. } => Revertibility::NotRevertible,
 
-            // Structural — not revertible (other events reference the step by heading)
-            Event::StepAdded { .. } => Revertibility::NotRevertible,
-
-            // Step transitions — revertible
-            Event::StepStarted { .. } => Revertibility::Revertible,
-            Event::StepCompleted { .. } => Revertibility::Revertible,
-            Event::StepSkipped { .. } => Revertibility::Revertible,
-
-            // Data events — revertible
-            Event::CheckboxToggled { .. } => Revertibility::Revertible,
-            Event::InputRecorded { .. } => Revertibility::Revertible,
-            Event::NoteAdded { .. } => Revertibility::Revertible,
-
-            // Attachment — revertible (file stays on disk)
-            Event::AttachmentAdded { .. } => Revertibility::Revertible,
-
-            // Name — revertible
-            Event::ExecutionRenamed { .. } => Revertibility::Revertible,
+            // Everything else (except revert markers) — revertible
+            Self::ExecutionCompleted { .. }
+            | Self::ExecutionAborted { .. }
+            | Self::StepStarted { .. }
+            | Self::StepCompleted { .. }
+            | Self::StepSkipped { .. }
+            | Self::CheckboxToggled { .. }
+            | Self::InputRecorded { .. }
+            | Self::NoteAdded { .. }
+            | Self::AttachmentAdded { .. }
+            | Self::ExecutionRenamed { .. } => Revertibility::Revertible,
 
             // Revert marker — not revertible
-            Event::EventReverted { .. } => Revertibility::RevertMarker,
+            Self::EventReverted { .. } => Revertibility::RevertMarker,
         }
     }
 
@@ -185,32 +177,33 @@ impl Event {
     ///
     /// This match is exhaustive — adding a new `Event` variant without
     /// updating this method will cause a compile error.
+    #[must_use]
     pub fn description(&self) -> String {
         match self {
-            Event::ExecutionStarted { procedure_id, .. } => {
+            Self::ExecutionStarted { procedure_id, .. } => {
                 format!("Started execution of {procedure_id}")
             }
-            Event::ExecutionCompleted { status, .. } => {
+            Self::ExecutionCompleted { status, .. } => {
                 format!("Completed execution: {status:?}")
             }
-            Event::ExecutionAborted { reason, .. } => {
+            Self::ExecutionAborted { reason, .. } => {
                 format!("Aborted execution: {reason}")
             }
-            Event::StepAdded { heading, .. } => format!("Added step: {heading}"),
-            Event::StepStarted { step_heading, .. } => {
+            Self::StepAdded { heading, .. } => format!("Added step: {heading}"),
+            Self::StepStarted { step_heading, .. } => {
                 format!("Started step: {step_heading}")
             }
-            Event::StepCompleted { step_heading, .. } => {
+            Self::StepCompleted { step_heading, .. } => {
                 format!("Completed step: {step_heading}")
             }
-            Event::StepSkipped {
+            Self::StepSkipped {
                 step_heading,
                 reason,
                 ..
             } => {
                 format!("Skipped step: {step_heading} ({reason})")
             }
-            Event::CheckboxToggled {
+            Self::CheckboxToggled {
                 step_heading,
                 text,
                 checked,
@@ -219,7 +212,7 @@ impl Event {
                 let verb = if *checked { "Checked" } else { "Unchecked" };
                 format!("{verb} checkbox '{text}' in {step_heading}")
             }
-            Event::InputRecorded {
+            Self::InputRecorded {
                 step_heading,
                 label,
                 value,
@@ -227,7 +220,7 @@ impl Event {
             } => {
                 format!("Recorded {label} = {value} in {step_heading}")
             }
-            Event::NoteAdded {
+            Self::NoteAdded {
                 text, step_heading, ..
             } => {
                 let scope = step_heading
@@ -241,7 +234,7 @@ impl Event {
                 };
                 format!("Added note{scope}: {truncated}")
             }
-            Event::AttachmentAdded {
+            Self::AttachmentAdded {
                 step_heading,
                 label,
                 filename,
@@ -249,10 +242,10 @@ impl Event {
             } => {
                 format!("Recorded {label} = {filename} in {step_heading}")
             }
-            Event::ExecutionRenamed { name, .. } => {
+            Self::ExecutionRenamed { name, .. } => {
                 format!("Renamed execution to: {name}")
             }
-            Event::EventReverted {
+            Self::EventReverted {
                 reverted_event_index,
                 reason,
                 ..

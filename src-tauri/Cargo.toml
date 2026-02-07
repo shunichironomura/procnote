@@ -26,3 +26,6 @@ uuid.workspace = true
 
 [build-dependencies]
 tauri-build.workspace = true
+
+[lints]
+workspace = true

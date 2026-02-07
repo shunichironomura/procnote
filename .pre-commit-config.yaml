@@ -11,25 +11,7 @@ repos:
       - id: check-toml
       - id: check-merge-conflict
 
-  - repo: local
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.43.1
     hooks:
-      - id: cargo-fmt
-        name: cargo fmt
-        entry: cargo fmt --all --
-        language: system
-        types: [rust]
-        pass_filenames: false
-
-      - id: cargo-clippy
-        name: cargo clippy
-        entry: cargo clippy --workspace -- -D warnings
-        language: system
-        types: [rust]
-        pass_filenames: false
-
-      - id: svelte-check
-        name: svelte-check
-        entry: pnpm check
-        language: system
-        types_or: [svelte, ts, javascript]
-        pass_filenames: false
+      - id: typos

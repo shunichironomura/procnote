@@ -122,6 +122,10 @@ fn step_status_string(status: &StepStatus) -> String {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "large match over all event variants to build summary"
+)]
 fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSummary {
     use std::collections::{HashMap, HashSet};
 
@@ -189,10 +193,8 @@ fn summarize(state: &ExecutionState, events: Option<&[Event]>) -> ExecutionSumma
                 step_heading,
                 label,
                 ..
-            } => {
-                input_at.insert((step_heading, label), at.to_rfc3339());
             }
-            Event::AttachmentAdded {
+            | Event::AttachmentAdded {
                 at,
                 step_heading,
                 label,
@@ -314,19 +316,19 @@ fn build_event_history(events: &[Event]) -> Vec<EventHistoryEntry> {
         .collect()
 }
 
-/// Extract optional step_heading and label from an event.
+/// Extract optional `step_heading` and label from an event.
 fn event_step_and_label(event: &Event) -> (Option<String>, Option<String>) {
     match event {
         Event::StepStarted { step_heading, .. }
         | Event::StepCompleted { step_heading, .. }
-        | Event::StepSkipped { step_heading, .. } => (Some(step_heading.clone()), None),
-        Event::CheckboxToggled { step_heading, .. } => (Some(step_heading.clone()), None),
+        | Event::StepSkipped { step_heading, .. }
+        | Event::CheckboxToggled { step_heading, .. } => (Some(step_heading.clone()), None),
         Event::InputRecorded {
             step_heading,
             label,
             ..
-        } => (Some(step_heading.clone()), Some(label.clone())),
-        Event::AttachmentAdded {
+        }
+        | Event::AttachmentAdded {
             step_heading,
             label,
             ..
@@ -424,6 +426,10 @@ fn load_execution_from_disk(
 
 /// Start a new execution from a template file.
 #[tauri::command]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command handlers require owned parameters"
+)]
 pub fn start_execution(
     state: State<'_, AppState>,
     template_path: String,
@@ -434,7 +440,9 @@ pub fn start_execution(
     let mut exec_state = ExecutionState::new();
     let events = exec_state.start(&template).map_err(|e| e.to_string())?;
 
-    let execution_id = exec_state.execution_id.unwrap();
+    let execution_id = exec_state
+        .execution_id
+        .expect("start() must set execution_id");
 
     // Extract the timestamp from the ExecutionStarted event.
     let started_at = events
@@ -527,6 +535,10 @@ pub enum ExecutionAction {
 
 /// Record an action on an active execution.
 #[tauri::command]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command handler with exhaustive action dispatch"
+)]
 pub fn record_action(
     state: State<'_, AppState>,
     execution_id: ExecutionId,
@@ -643,6 +655,10 @@ pub fn record_action(
 
 /// Get the current state of an execution.
 #[tauri::command]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command handlers require owned parameters"
+)]
 pub fn get_execution_state(
     state: State<'_, AppState>,
     execution_id: ExecutionId,
@@ -653,6 +669,10 @@ pub fn get_execution_state(
 
 /// List all executions by scanning the executions directory on disk.
 #[tauri::command]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command handlers require owned parameters"
+)]
 pub fn list_executions(state: State<'_, AppState>) -> Result<Vec<ExecutionSummary>, String> {
     let mut summaries = Vec::new();
 
