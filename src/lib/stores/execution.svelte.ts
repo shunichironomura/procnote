@@ -1,4 +1,5 @@
 import * as api from "$lib/api/commands";
+import { debug, error as logError } from "@tauri-apps/plugin-log";
 import type { ExecutionAction, ExecutionSummary } from "$lib/types";
 
 class ExecutionStore {
@@ -43,12 +44,12 @@ class ExecutionStore {
     if (!this.summary) return;
     this.error = null;
     try {
-      console.debug("[ExecutionStore] act:", action);
+      debug(`[ExecutionStore] act: ${JSON.stringify(action)}`);
       const result = await api.recordAction(this.summary.execution_id, action);
-      console.debug("[ExecutionStore] act result: steps=", result.steps.length, "status=", result.status);
+      debug(`[ExecutionStore] act result: steps=${result.steps.length} status=${result.status}`);
       this.summary = result;
     } catch (e) {
-      console.error("[ExecutionStore] act error:", e);
+      logError(`[ExecutionStore] act error: ${e}`);
       this.error = String(e);
     }
   }
