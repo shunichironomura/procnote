@@ -109,6 +109,14 @@ pub enum Event {
         sha256: String,
     },
 
+    // -- Step Content --
+    StepContentUpdated {
+        at: DateTime<Utc>,
+        execution_id: ExecutionId,
+        step_heading: String,
+        content: Vec<StepContent>,
+    },
+
     // -- Name --
     ExecutionRenamed {
         at: DateTime<Utc>,
@@ -161,6 +169,7 @@ impl Event {
             | Self::InputRecorded { .. }
             | Self::NoteAdded { .. }
             | Self::AttachmentAdded { .. }
+            | Self::StepContentUpdated { .. }
             | Self::ExecutionRenamed { .. } => Revertibility::Revertible,
 
             // Revert marker — not revertible
@@ -236,6 +245,9 @@ impl Event {
                 ..
             } => {
                 format!("Recorded {label} = {filename} in {step_heading}")
+            }
+            Self::StepContentUpdated { step_heading, .. } => {
+                format!("Updated content of step: {step_heading}")
             }
             Self::ExecutionRenamed { name, .. } => {
                 format!("Renamed execution to: {name}")

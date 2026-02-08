@@ -321,6 +321,16 @@ impl ExecutionState {
                 );
             }
 
+            Event::StepContentUpdated {
+                step_heading,
+                content,
+                ..
+            } => {
+                self.require_active()?;
+                let step = self.get_step_mut(step_heading)?;
+                step.content.clone_from(content);
+            }
+
             Event::ExecutionRenamed { name, .. } => {
                 if self.execution_id.is_none() {
                     return Err(ExecutionError::NotStarted);
@@ -414,6 +424,23 @@ impl ExecutionState {
             heading: heading.to_string(),
             content,
             after_step: after_step.map(std::string::ToString::to_string),
+        };
+        self.apply(&event)?;
+        Ok(event)
+    }
+
+    /// Update the content of an existing step.
+    pub fn update_step_content(
+        &mut self,
+        step_heading: &str,
+        content: Vec<StepContent>,
+    ) -> Result<Event, ExecutionError> {
+        self.require_active()?;
+        let event = Event::StepContentUpdated {
+            at: Utc::now(),
+            execution_id: self.require_execution_id()?,
+            step_heading: step_heading.to_string(),
+            content,
         };
         self.apply(&event)?;
         Ok(event)
@@ -1232,6 +1259,150 @@ mod tests {
             !rebuilt.steps["Step 1: Power On"]
                 .inputs
                 .contains_key("Current")
+        );
+    }
+
+    // -- StepContentUpdated tests --
+
+    #[test]
+    fn test_update_step_content() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        state.start(&template).unwrap();
+
+        let new_content = vec![StepContent::Prose {
+            text: "Updated description".to_string(),
+        }];
+        state
+            .update_step_content("Preconditions", new_content)
+            .unwrap();
+
+        assert_eq!(state.steps["Preconditions"].content.len(), 1);
+        assert!(
+            matches!(&state.steps["Preconditions"].content[0], StepContent::Prose { text } if text == "Updated description")
+        );
+    }
+
+    #[test]
+    fn test_update_step_content_preserves_inputs_and_notes() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        state.start(&template).unwrap();
+        state.start_step("Preconditions").unwrap();
+        state
+            .record_input("Preconditions", "Voltage", "5.0", Some("V"))
+            .unwrap();
+        state
+            .add_note("Some observation", Some("Preconditions"))
+            .unwrap();
+
+        let new_content = vec![StepContent::Prose {
+            text: "New prose".to_string(),
+        }];
+        state
+            .update_step_content("Preconditions", new_content)
+            .unwrap();
+
+        // Content is replaced.
+        assert_eq!(state.steps["Preconditions"].content.len(), 1);
+        // Inputs and notes are untouched.
+        assert_eq!(state.steps["Preconditions"].inputs["Voltage"].value, "5.0");
+        assert_eq!(state.steps["Preconditions"].notes.len(), 1);
+        assert_eq!(state.steps["Preconditions"].notes[0], "Some observation");
+    }
+
+    #[test]
+    fn test_cannot_update_content_before_start() {
+        let mut state = ExecutionState::new();
+        let result = state.update_step_content("Step 1", vec![]);
+        assert_eq!(result.unwrap_err(), ExecutionError::NotStarted);
+    }
+
+    #[test]
+    fn test_cannot_update_content_after_finish() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        state.start(&template).unwrap();
+        state.complete(CompletionStatus::Pass).unwrap();
+
+        let result = state.update_step_content("Preconditions", vec![]);
+        assert_eq!(result.unwrap_err(), ExecutionError::AlreadyFinished);
+    }
+
+    #[test]
+    fn test_cannot_update_content_nonexistent_step() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        state.start(&template).unwrap();
+
+        let result = state.update_step_content("Nonexistent Step", vec![]);
+        assert_eq!(
+            result.unwrap_err(),
+            ExecutionError::StepNotFound("Nonexistent Step".to_string())
+        );
+    }
+
+    #[test]
+    fn test_revert_step_content_updated() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        let mut events: Vec<Event> = Vec::new();
+        events.extend(state.start(&template).unwrap());
+        // index 0..4: ExecutionStarted + ExecutionRenamed + 3 StepAdded
+
+        let original_content = state.steps["Preconditions"].content.clone();
+
+        events.push(
+            state
+                .update_step_content(
+                    "Preconditions",
+                    vec![StepContent::Prose {
+                        text: "Changed".to_string(),
+                    }],
+                )
+                .unwrap(),
+        ); // index 5
+
+        // Revert the content update.
+        let revert = ExecutionState::revert_event(&events, 5, "undo edit").unwrap();
+        events.push(revert);
+
+        let rebuilt = ExecutionState::from_events(&events).unwrap();
+        assert_eq!(rebuilt.steps["Preconditions"].content, original_content);
+    }
+
+    #[test]
+    fn test_update_step_content_replay() {
+        let template = sample_template();
+        let mut state = ExecutionState::new();
+        let mut events: Vec<Event> = Vec::new();
+        events.extend(state.start(&template).unwrap());
+
+        events.push(
+            state
+                .update_step_content(
+                    "Preconditions",
+                    vec![StepContent::Prose {
+                        text: "Updated via replay".to_string(),
+                    }],
+                )
+                .unwrap(),
+        );
+
+        // Serialize and deserialize all events.
+        let jsons: Vec<String> = events
+            .iter()
+            .map(|e| serde_json::to_string(e).unwrap())
+            .collect();
+        let deserialized_events: Vec<Event> = jsons
+            .iter()
+            .map(|j| serde_json::from_str(j).unwrap())
+            .collect();
+
+        let replayed = ExecutionState::from_events(&deserialized_events).unwrap();
+        assert_eq!(replayed.steps["Preconditions"].content.len(), 1);
+        assert!(
+            matches!(&replayed.steps["Preconditions"].content[0], StepContent::Prose { text } if text == "Updated via replay")
         );
     }
 }

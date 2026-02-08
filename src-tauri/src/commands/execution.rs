@@ -368,7 +368,8 @@ fn event_step_and_label(event: &Event) -> (Option<String>, Option<String>) {
         Event::StepStarted { step_heading, .. }
         | Event::StepCompleted { step_heading, .. }
         | Event::StepSkipped { step_heading, .. }
-        | Event::CheckboxToggled { step_heading, .. } => (Some(step_heading.clone()), None),
+        | Event::CheckboxToggled { step_heading, .. }
+        | Event::StepContentUpdated { step_heading, .. } => (Some(step_heading.clone()), None),
         Event::InputRecorded {
             step_heading,
             label,
@@ -397,6 +398,7 @@ fn event_type_string(event: &Event) -> String {
         Event::InputRecorded { .. } => "input_recorded",
         Event::NoteAdded { .. } => "note_added",
         Event::AttachmentAdded { .. } => "attachment_added",
+        Event::StepContentUpdated { .. } => "step_content_updated",
         Event::ExecutionRenamed { .. } => "execution_renamed",
         Event::EventReverted { .. } => "event_reverted",
     }
@@ -416,6 +418,7 @@ fn event_at(event: &Event) -> String {
         | Event::InputRecorded { at, .. }
         | Event::NoteAdded { at, .. }
         | Event::AttachmentAdded { at, .. }
+        | Event::StepContentUpdated { at, .. }
         | Event::ExecutionRenamed { at, .. }
         | Event::EventReverted { at, .. } => at.to_rfc3339(),
     }
@@ -557,6 +560,10 @@ pub enum ExecutionAction {
         #[ts(optional)]
         after_step: Option<String>,
     },
+    UpdateStepContent {
+        step_heading: String,
+        content: Vec<StepContent>,
+    },
     AddAttachment {
         step_heading: String,
         label: String,
@@ -651,6 +658,12 @@ pub fn record_action(
             after_step,
         } => exec_state
             .add_step(&heading, content, after_step.as_deref())
+            .map_err(|e| e.to_string())?,
+        ExecutionAction::UpdateStepContent {
+            step_heading,
+            content,
+        } => exec_state
+            .update_step_content(&step_heading, content)
             .map_err(|e| e.to_string())?,
         ExecutionAction::AddAttachment {
             step_heading,

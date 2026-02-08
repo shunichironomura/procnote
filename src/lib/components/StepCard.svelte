@@ -39,10 +39,11 @@
 
     import "highlight.js/styles/atom-one-light.css";
 
-    import type { StepSummary, EventHistoryEntry } from "$lib/types";
+    import type { StepSummary, StepContent, EventHistoryEntry } from "$lib/types";
     import { formatTimestamp } from "$lib/utils/format";
     import AttachmentField from "./AttachmentField.svelte";
     import CheckboxItem from "./CheckboxItem.svelte";
+    import EditStepDialog from "./EditStepDialog.svelte";
     import InputField from "./InputField.svelte";
     import NoteEditor from "./NoteEditor.svelte";
 
@@ -82,6 +83,7 @@
 
     let showSkipDialog = $state(false);
     let skipReason = $state("");
+    let showEditDialog = $state(false);
 
     // Find the most recent revertible step-status event (complete/skip/start).
     let revertibleStatusEvent = $derived(
@@ -174,6 +176,15 @@
             step_heading: stepSummary.heading,
         });
     }
+
+    function updateContent(stepHeading: string, content: StepContent[]) {
+        onaction({
+            action: "update_step_content",
+            step_heading: stepHeading,
+            content,
+        });
+        showEditDialog = false;
+    }
 </script>
 
 <div
@@ -186,6 +197,9 @@
     <div class="step-header">
         <div class="step-status-indicator"></div>
         <h3 class="step-heading">{stepSummary.heading}</h3>
+        {#if executionActive}
+            <button class="btn-edit" onclick={() => (showEditDialog = true)}>Edit</button>
+        {/if}
         {#if stepSummary.status_at}
             <span class="timestamp">{formatTimestamp(stepSummary.status_at)}</span>
         {/if}
@@ -324,6 +338,14 @@
     {/if}
 </div>
 
+{#if showEditDialog}
+    <EditStepDialog
+        {stepSummary}
+        onconfirm={updateContent}
+        oncancel={() => (showEditDialog = false)}
+    />
+{/if}
+
 <style>
     .step-card {
         background: #fff;
@@ -390,6 +412,22 @@
         margin: 0;
         font-size: 15px;
         font-weight: 600;
+    }
+
+    .btn-edit {
+        padding: 2px 8px;
+        border: 1px solid #ccc;
+        border-radius: 3px;
+        background: #fff;
+        color: #666;
+        font: inherit;
+        font-size: 11px;
+        cursor: pointer;
+    }
+
+    .btn-edit:hover {
+        background: #f5f5f5;
+        color: #333;
     }
 
     .step-description {

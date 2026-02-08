@@ -263,6 +263,14 @@ mod tests {
                 content_type: "image/jpeg".to_string(),
                 sha256: "abc123".to_string(),
             },
+            Event::StepContentUpdated {
+                at: now,
+                execution_id: id,
+                step_heading: "Step 1".to_string(),
+                content: vec![StepContent::Prose {
+                    text: "Updated description".to_string(),
+                }],
+            },
         ];
 
         // Round-trip all event types through JSON.
