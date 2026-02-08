@@ -3,8 +3,8 @@ name = "procnote-tauri"
 version = "0.1.0"
 edition = "2024"
 description = "procnote - Procedure execution tool for hardware testing"
-repository = ""
-license = ""
+repository.workspace = true
+license.workspace = true
 
 [lib]
 crate-type = ["cdylib", "rlib", "staticlib"]
