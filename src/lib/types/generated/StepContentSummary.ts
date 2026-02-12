@@ -4,7 +4,7 @@ import type { InputDefinitionSummary } from "./InputDefinitionSummary";
 /**
  * A single content item within a step, merging template structure with runtime state.
  */
-export type StepContentSummary = { "type": "Prose", text: string, } | { "type": "Checkbox", text: string, checked: boolean, 
+export type StepContentSummary = { "type": "Prose", text: string, } | { "type": "Checkbox", id?: string, text: string, checked: boolean, 
 /**
  * ISO 8601 timestamp of the last toggle, if any.
  */

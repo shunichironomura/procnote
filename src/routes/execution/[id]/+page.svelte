@@ -33,7 +33,7 @@
     );
     let totalSteps = $derived(summary?.steps.length ?? 0);
 
-    let stepHeadings = $derived(summary?.steps.map((s) => s.heading) ?? []);
+    let stepRefs = $derived(summary?.steps.map((s) => ({ id: s.id, heading: s.heading })) ?? []);
 
     // Find the revertible execution-level finish event (completed or aborted).
     let revertibleFinishEvent = $derived(
@@ -56,15 +56,15 @@
         ),
     );
 
-    // Build a map of step_heading -> revertible events for that step.
+    // Build a map of step_id -> revertible events for that step.
     let revertibleEventsByStep = $derived.by(() => {
         const map = new Map<string, EventHistoryEntry[]>();
         if (!summary) return map;
 
         for (const entry of summary.event_history) {
-            if (entry.revertible && !entry.reverted && entry.step_heading) {
-                if (!map.has(entry.step_heading)) map.set(entry.step_heading, []);
-                map.get(entry.step_heading)!.push(entry);
+            if (entry.revertible && !entry.reverted && entry.step_id) {
+                if (!map.has(entry.step_id)) map.set(entry.step_id, []);
+                map.get(entry.step_id)!.push(entry);
             }
         }
         return map;
@@ -75,15 +75,17 @@
     }
 
     async function addStep(
+        stepId: string,
         heading: string,
         content: StepContent[],
-        afterStep?: string,
+        afterStepId?: string,
     ) {
         await executionStore.act({
             action: "add_step",
+            step_id: stepId,
             heading,
             content,
-            after_step: afterStep,
+            after_step_id: afterStepId,
         });
         showAddStepDialog = false;
     }
@@ -266,7 +268,7 @@
                 <StepCard
                     {stepSummary}
                     executionActive={isActive ?? false}
-                    revertibleEvents={revertibleEventsByStep.get(stepSummary.heading) ?? []}
+                    revertibleEvents={revertibleEventsByStep.get(stepSummary.id) ?? []}
                     onaction={handleAction}
                 />
             {/each}
@@ -276,7 +278,7 @@
 
 {#if showAddStepDialog}
     <AddStepDialog
-        {stepHeadings}
+        steps={stepRefs}
         onconfirm={addStep}
         oncancel={() => (showAddStepDialog = false)}
     />

@@ -11,7 +11,7 @@
     }: {
         checkbox: CheckboxContent;
         disabled?: boolean;
-        ontoggle: (text: string, checked: boolean) => void;
+        ontoggle: (checkboxId: string, checked: boolean) => void;
     } = $props();
 </script>
 
@@ -20,7 +20,7 @@
         type="checkbox"
         checked={checkbox.checked}
         {disabled}
-        onchange={() => ontoggle(checkbox.text, !checkbox.checked)}
+        onchange={() => ontoggle(checkbox.id ?? "", !checkbox.checked)}
     />
     <span class="checkbox-text">{checkbox.text}</span>
     {#if checkbox.at}

@@ -47,28 +47,31 @@ pub enum Event {
     StepAdded {
         at: DateTime<Utc>,
         execution_id: ExecutionId,
+        /// Stable element ID for this step.
+        step_id: String,
         heading: String,
         /// Ordered content items from the template (prose, checkboxes, input blocks).
+        /// Checkbox and input items carry their own IDs.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         content: Vec<StepContent>,
-        /// Insert after this step heading. `None` means append at end.
+        /// Insert after this step ID. `None` means append at end.
         #[serde(skip_serializing_if = "Option::is_none")]
-        after_step: Option<String>,
+        after_step_id: Option<String>,
     },
     StepStarted {
         at: DateTime<Utc>,
         execution_id: ExecutionId,
-        step_heading: String,
+        step_id: String,
     },
     StepCompleted {
         at: DateTime<Utc>,
         execution_id: ExecutionId,
-        step_heading: String,
+        step_id: String,
     },
     StepSkipped {
         at: DateTime<Utc>,
         execution_id: ExecutionId,
-        step_heading: String,
+        step_id: String,
         reason: String,
     },
 
@@ -76,15 +79,15 @@ pub enum Event {
     CheckboxToggled {
         at: DateTime<Utc>,
         execution_id: ExecutionId,
-        step_heading: String,
-        text: String,
+        step_id: String,
+        checkbox_id: String,
         checked: bool,
     },
     InputRecorded {
         at: DateTime<Utc>,
         execution_id: ExecutionId,
-        step_heading: String,
-        label: String,
+        step_id: String,
+        input_id: String,
         value: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         unit: Option<String>,
@@ -94,15 +97,15 @@ pub enum Event {
         execution_id: ExecutionId,
         text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        step_heading: Option<String>,
+        step_id: Option<String>,
     },
 
     // -- Attachment --
     AttachmentAdded {
         at: DateTime<Utc>,
         execution_id: ExecutionId,
-        step_heading: String,
-        label: String,
+        step_id: String,
+        input_id: String,
         filename: String,
         path: String,
         content_type: String,
@@ -185,42 +188,34 @@ impl Event {
                 format!("Aborted execution: {reason}")
             }
             Self::StepAdded { heading, .. } => format!("Added step: {heading}"),
-            Self::StepStarted { step_heading, .. } => {
-                format!("Started step: {step_heading}")
+            Self::StepStarted { step_id, .. } => {
+                format!("Started step: {step_id}")
             }
-            Self::StepCompleted { step_heading, .. } => {
-                format!("Completed step: {step_heading}")
+            Self::StepCompleted { step_id, .. } => {
+                format!("Completed step: {step_id}")
             }
             Self::StepSkipped {
-                step_heading,
-                reason,
-                ..
+                step_id, reason, ..
             } => {
-                format!("Skipped step: {step_heading} ({reason})")
+                format!("Skipped step: {step_id} ({reason})")
             }
             Self::CheckboxToggled {
-                step_heading,
-                text,
+                checkbox_id,
                 checked,
                 ..
             } => {
                 let verb = if *checked { "Checked" } else { "Unchecked" };
-                format!("{verb} checkbox '{text}' in {step_heading}")
+                format!("{verb} checkbox {checkbox_id}")
             }
             Self::InputRecorded {
-                step_heading,
-                label,
-                value,
-                ..
+                input_id, value, ..
             } => {
-                format!("Recorded {label} = {value} in {step_heading}")
+                format!("Recorded {input_id} = {value}")
             }
-            Self::NoteAdded {
-                text, step_heading, ..
-            } => {
-                let scope = step_heading
+            Self::NoteAdded { text, step_id, .. } => {
+                let scope = step_id
                     .as_ref()
-                    .map(|h| format!(" to {h}"))
+                    .map(|id| format!(" to {id}"))
                     .unwrap_or_default();
                 let truncated = if text.len() > 50 {
                     format!("{}...", &text[..50])
@@ -230,12 +225,9 @@ impl Event {
                 format!("Added note{scope}: {truncated}")
             }
             Self::AttachmentAdded {
-                step_heading,
-                label,
-                filename,
-                ..
+                input_id, filename, ..
             } => {
-                format!("Recorded {label} = {filename} in {step_heading}")
+                format!("Recorded {input_id} = {filename}")
             }
             Self::ExecutionRenamed { name, .. } => {
                 format!("Renamed execution to: {name}")
