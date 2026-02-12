@@ -104,6 +104,7 @@ fn parse_body(body: &str) -> Result<Vec<Step>, ParseError> {
                 // Flush previous step.
                 if let Some(heading) = current_heading.take() {
                     steps.push(Step {
+                        id: None,
                         heading,
                         content: std::mem::take(&mut current_content),
                     });
@@ -153,6 +154,7 @@ fn parse_body(body: &str) -> Result<Vec<Step>, ParseError> {
                 }
                 let text = collect_task_text(&events, &mut i);
                 current_content.push(StepContent::Checkbox {
+                    id: None,
                     text: text.trim().to_string(),
                     checked,
                 });
@@ -209,6 +211,7 @@ fn parse_body(body: &str) -> Result<Vec<Step>, ParseError> {
     flush_prose(body, &mut prose_start, body.len(), &mut current_content);
     if let Some(heading) = current_heading.take() {
         steps.push(Step {
+            id: None,
             heading,
             content: std::mem::take(&mut current_content),
         });
@@ -499,7 +502,7 @@ Execute self-test command via EGSE.
             .content
             .iter()
             .filter_map(|c| match c {
-                StepContent::Checkbox { text, checked } => Some((text.clone(), *checked)),
+                StepContent::Checkbox { text, checked, .. } => Some((text.clone(), *checked)),
                 _ => None,
             })
             .collect();

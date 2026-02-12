@@ -95,15 +95,15 @@
             .at(-1),
     );
 
-    // Build a map of input label -> most recent revertible input/attachment event.
+    // Build a map of element_id -> most recent revertible input/attachment event.
     let revertibleInputEvents = $derived.by(() => {
         const map = new Map<string, EventHistoryEntry>();
         for (const e of revertibleEvents) {
             if (
                 (e.event_type === "input_recorded" || e.event_type === "attachment_added") &&
-                e.label
+                e.element_id
             ) {
-                map.set(e.label, e);
+                map.set(e.element_id, e);
             }
         }
         return map;
@@ -116,13 +116,13 @@
     );
 
     function startStep() {
-        onaction({ action: "start_step", step_heading: stepSummary.heading });
+        onaction({ action: "start_step", step_id: stepSummary.id });
     }
 
     function completeStep() {
         onaction({
             action: "complete_step",
-            step_heading: stepSummary.heading,
+            step_id: stepSummary.id,
         });
     }
 
@@ -130,37 +130,37 @@
         if (!skipReason.trim()) return;
         onaction({
             action: "skip_step",
-            step_heading: stepSummary.heading,
+            step_id: stepSummary.id,
             reason: skipReason.trim(),
         });
         showSkipDialog = false;
         skipReason = "";
     }
 
-    function toggleCheckbox(text: string, checked: boolean) {
+    function toggleCheckbox(checkboxId: string, checked: boolean) {
         onaction({
             action: "toggle_checkbox",
-            step_heading: stepSummary.heading,
-            text,
+            step_id: stepSummary.id,
+            checkbox_id: checkboxId,
             checked,
         });
     }
 
-    function recordInput(label: string, value: string, unit?: string) {
+    function recordInput(inputId: string, value: string, unit?: string) {
         onaction({
             action: "record_input",
-            step_heading: stepSummary.heading,
-            label,
+            step_id: stepSummary.id,
+            input_id: inputId,
             value,
             unit,
         });
     }
 
-    function attachFile(label: string, filename: string, path: string, contentType: string) {
+    function attachFile(inputId: string, filename: string, path: string, contentType: string) {
         onaction({
             action: "add_attachment",
-            step_heading: stepSummary.heading,
-            label,
+            step_id: stepSummary.id,
+            input_id: inputId,
             filename,
             path,
             content_type: contentType,
@@ -171,7 +171,7 @@
         onaction({
             action: "add_note",
             text,
-            step_heading: stepSummary.heading,
+            step_id: stepSummary.id,
         });
     }
 </script>
@@ -204,7 +204,7 @@
         {:else if block.type === "InputBlock"}
             <div class="step-section">
                 {#each block.inputs as input}
-                    {@const inputEvent = revertibleInputEvents.get(input.definition.label)}
+                    {@const inputEvent = revertibleInputEvents.get(input.definition.id)}
                     {@const revertHandler = inputEvent && executionActive
                         ? () =>
                               onaction({
@@ -219,7 +219,7 @@
                             recorded={input.recorded}
                             disabled={!isInteractable}
                             onattach={(filename, path, contentType) =>
-                                attachFile(input.definition.label, filename, path, contentType)}
+                                attachFile(input.definition.id, filename, path, contentType)}
                             onrevert={revertHandler}
                         />
                     {:else}

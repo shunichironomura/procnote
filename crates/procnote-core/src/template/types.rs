@@ -37,6 +37,10 @@ pub struct Equipment {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 #[ts(export)]
 pub struct Step {
+    /// Stable element ID, assigned at execution start. `None` in raw templates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub id: Option<String>,
     pub heading: String,
     pub content: Vec<StepContent>,
 }
@@ -49,7 +53,14 @@ pub enum StepContent {
     /// Free-form prose text (Markdown source).
     Prose { text: String },
     /// A checkbox item from a task list (`- [ ]` or `- [x]`).
-    Checkbox { text: String, checked: bool },
+    Checkbox {
+        /// Stable element ID, assigned at execution start. `None` in raw templates.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        id: Option<String>,
+        text: String,
+        checked: bool,
+    },
     /// A block of input definitions from a fenced `inputs` code block.
     InputBlock { inputs: Vec<InputDefinition> },
 }

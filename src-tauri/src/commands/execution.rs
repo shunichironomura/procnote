@@ -46,19 +46,20 @@ pub struct EventHistoryEntry {
     pub description: String,
     pub revertible: bool,
     pub reverted: bool,
-    /// Step heading for step-scoped events, if applicable.
+    /// Step ID for step-scoped events, if applicable.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub step_heading: Option<String>,
-    /// Label for input/attachment events, if applicable.
+    pub step_id: Option<String>,
+    /// Element ID (`checkbox_id` or `input_id`) for element-scoped events, if applicable.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub label: Option<String>,
+    pub element_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, TS)]
 #[ts(export)]
 pub struct StepSummary {
+    pub id: String,
     pub heading: String,
     pub status: String,
     /// ISO 8601 timestamp of the most recent status change (started/completed/skipped).
@@ -78,6 +79,8 @@ pub enum StepContentSummary {
         text: String,
     },
     Checkbox {
+        #[ts(optional)]
+        id: Option<String>,
         text: String,
         checked: bool,
         /// ISO 8601 timestamp of the last toggle, if any.
@@ -173,15 +176,15 @@ fn summarize(
     // Store as RFC3339 strings to avoid depending on chrono in this crate.
     let mut started_at: Option<String> = None;
     let mut finished_at: Option<String> = None;
-    // step_heading -> most recent status-change timestamp
+    // step_id -> most recent status-change timestamp
     let mut step_status_at: HashMap<&str, String> = HashMap::new();
-    // (step_heading, checkbox_text) -> most recent toggle timestamp
-    let mut checkbox_at: HashMap<(&str, &str), String> = HashMap::new();
-    // (step_heading, input_label) -> most recent record timestamp
-    let mut input_at: HashMap<(&str, &str), String> = HashMap::new();
-    // (step_heading, label) -> full SHA256 hash for attachments
-    let mut attachment_sha256: HashMap<(&str, &str), String> = HashMap::new();
-    // (step_heading, note_index_in_step) -> add timestamp
+    // checkbox_id -> most recent toggle timestamp
+    let mut checkbox_at: HashMap<&str, String> = HashMap::new();
+    // input_id -> most recent record timestamp
+    let mut input_at: HashMap<&str, String> = HashMap::new();
+    // input_id -> full SHA256 hash for attachments
+    let mut attachment_sha256: HashMap<&str, String> = HashMap::new();
+    // (step_id, note_index_in_step) -> add timestamp
     // We count notes per step to match the index in StepState.notes.
     let mut note_at: HashMap<(&str, usize), String> = HashMap::new();
     let mut note_counts: HashMap<&str, usize> = HashMap::new();
@@ -197,50 +200,35 @@ fn summarize(
             Event::ExecutionCompleted { at, .. } | Event::ExecutionAborted { at, .. } => {
                 finished_at = Some(at.to_rfc3339());
             }
-            Event::StepStarted {
-                at, step_heading, ..
-            }
-            | Event::StepCompleted {
-                at, step_heading, ..
-            }
-            | Event::StepSkipped {
-                at, step_heading, ..
-            } => {
-                step_status_at.insert(step_heading, at.to_rfc3339());
+            Event::StepStarted { at, step_id, .. }
+            | Event::StepCompleted { at, step_id, .. }
+            | Event::StepSkipped { at, step_id, .. } => {
+                step_status_at.insert(step_id, at.to_rfc3339());
             }
             Event::CheckboxToggled {
-                at,
-                step_heading,
-                text,
-                ..
+                at, checkbox_id, ..
             } => {
-                checkbox_at.insert((step_heading, text), at.to_rfc3339());
+                checkbox_at.insert(checkbox_id, at.to_rfc3339());
             }
-            Event::InputRecorded {
-                at,
-                step_heading,
-                label,
-                ..
-            } => {
-                input_at.insert((step_heading, label), at.to_rfc3339());
+            Event::InputRecorded { at, input_id, .. } => {
+                input_at.insert(input_id, at.to_rfc3339());
             }
             Event::AttachmentAdded {
                 at,
-                step_heading,
-                label,
+                input_id,
                 sha256,
                 ..
             } => {
-                input_at.insert((step_heading, label), at.to_rfc3339());
-                attachment_sha256.insert((step_heading, label), sha256.clone());
+                input_at.insert(input_id, at.to_rfc3339());
+                attachment_sha256.insert(input_id, sha256.clone());
             }
             Event::NoteAdded {
                 at,
-                step_heading: Some(heading),
+                step_id: Some(id),
                 ..
             } => {
-                let count = note_counts.entry(heading).or_insert(0);
-                note_at.insert((heading, *count), at.to_rfc3339());
+                let count = note_counts.entry(id).or_insert(0);
+                note_at.insert((id, *count), at.to_rfc3339());
                 *count += 1;
             }
             _ => {}
@@ -250,8 +238,8 @@ fn summarize(
     let steps = state
         .step_order
         .iter()
-        .filter_map(|heading| {
-            state.steps.get(heading).map(|step| {
+        .filter_map(|step_id| {
+            state.steps.get(step_id).map(|step| {
                 let content = step
                     .content
                     .iter()
@@ -259,26 +247,27 @@ fn summarize(
                         StepContent::Prose { text } => {
                             StepContentSummary::Prose { text: text.clone() }
                         }
-                        StepContent::Checkbox { text, checked } => StepContentSummary::Checkbox {
-                            text: text.clone(),
-                            checked: *checked,
-                            at: checkbox_at.get(&(heading.as_str(), text.as_str())).cloned(),
-                        },
+                        StepContent::Checkbox { id, text, checked } => {
+                            StepContentSummary::Checkbox {
+                                id: id.clone(),
+                                text: text.clone(),
+                                checked: *checked,
+                                at: id
+                                    .as_ref()
+                                    .and_then(|cb_id| checkbox_at.get(cb_id.as_str()).cloned()),
+                            }
+                        }
                         StepContent::InputBlock { inputs } => StepContentSummary::InputBlock {
                             inputs: inputs
                                 .iter()
                                 .map(|def| {
                                     let recorded =
-                                        step.inputs.get(&def.label).map(|input| InputState {
+                                        step.inputs.get(&def.id).map(|input| InputState {
                                             label: input.label.clone(),
                                             value: input.value.clone(),
                                             unit: input.unit.clone(),
-                                            at: input_at
-                                                .get(&(heading.as_str(), input.label.as_str()))
-                                                .cloned(),
-                                            sha256: attachment_sha256
-                                                .get(&(heading.as_str(), input.label.as_str()))
-                                                .cloned(),
+                                            at: input_at.get(def.id.as_str()).cloned(),
+                                            sha256: attachment_sha256.get(def.id.as_str()).cloned(),
                                         });
                                     InputDefinitionSummary {
                                         definition: def.clone(),
@@ -295,13 +284,14 @@ fn summarize(
                     .enumerate()
                     .map(|(i, text)| NoteState {
                         text: text.clone(),
-                        at: note_at.get(&(heading.as_str(), i)).cloned(),
+                        at: note_at.get(&(step_id.as_str(), i)).cloned(),
                     })
                     .collect();
                 StepSummary {
+                    id: step_id.clone(),
                     heading: step.heading.clone(),
                     status: step_status_string(&step.status),
-                    status_at: step_status_at.get(heading.as_str()).cloned(),
+                    status_at: step_status_at.get(step_id.as_str()).cloned(),
                     content,
                     notes,
                 }
@@ -347,7 +337,7 @@ fn build_event_history(events: &[Event]) -> Vec<EventHistoryEntry> {
         .map(|(index, event)| {
             let revertible = event.revertibility() == Revertibility::Revertible
                 && !reverted_indices.contains(&index);
-            let (step_heading, label) = event_step_and_label(event);
+            let (step_id, element_id) = event_step_and_label(event);
             EventHistoryEntry {
                 index,
                 event_type: event_type_string(event),
@@ -355,31 +345,31 @@ fn build_event_history(events: &[Event]) -> Vec<EventHistoryEntry> {
                 description: event.description(),
                 revertible,
                 reverted: reverted_indices.contains(&index),
-                step_heading,
-                label,
+                step_id,
+                element_id,
             }
         })
         .collect()
 }
 
-/// Extract optional `step_heading` and label from an event.
+/// Extract optional `step_id` and `element_id` from an event.
 fn event_step_and_label(event: &Event) -> (Option<String>, Option<String>) {
     match event {
-        Event::StepStarted { step_heading, .. }
-        | Event::StepCompleted { step_heading, .. }
-        | Event::StepSkipped { step_heading, .. }
-        | Event::CheckboxToggled { step_heading, .. } => (Some(step_heading.clone()), None),
-        Event::InputRecorded {
-            step_heading,
-            label,
+        Event::StepStarted { step_id, .. }
+        | Event::StepCompleted { step_id, .. }
+        | Event::StepSkipped { step_id, .. } => (Some(step_id.clone()), None),
+        Event::CheckboxToggled {
+            step_id,
+            checkbox_id,
             ..
+        } => (Some(step_id.clone()), Some(checkbox_id.clone())),
+        Event::InputRecorded {
+            step_id, input_id, ..
         }
         | Event::AttachmentAdded {
-            step_heading,
-            label,
-            ..
-        } => (Some(step_heading.clone()), Some(label.clone())),
-        Event::NoteAdded { step_heading, .. } => (step_heading.clone(), None),
+            step_id, input_id, ..
+        } => (Some(step_id.clone()), Some(input_id.clone())),
+        Event::NoteAdded { step_id, .. } => (step_id.clone(), None),
         _ => (None, None),
     }
 }
@@ -524,23 +514,23 @@ pub fn start_execution(
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ExecutionAction {
     StartStep {
-        step_heading: String,
+        step_id: String,
     },
     CompleteStep {
-        step_heading: String,
+        step_id: String,
     },
     SkipStep {
-        step_heading: String,
+        step_id: String,
         reason: String,
     },
     ToggleCheckbox {
-        step_heading: String,
-        text: String,
+        step_id: String,
+        checkbox_id: String,
         checked: bool,
     },
     RecordInput {
-        step_heading: String,
-        label: String,
+        step_id: String,
+        input_id: String,
         value: String,
         #[ts(optional)]
         unit: Option<String>,
@@ -548,18 +538,19 @@ pub enum ExecutionAction {
     AddNote {
         text: String,
         #[ts(optional)]
-        step_heading: Option<String>,
+        step_id: Option<String>,
     },
     AddStep {
+        step_id: String,
         heading: String,
         #[serde(default)]
         content: Vec<StepContent>,
         #[ts(optional)]
-        after_step: Option<String>,
+        after_step_id: Option<String>,
     },
     AddAttachment {
-        step_heading: String,
-        label: String,
+        step_id: String,
+        input_id: String,
         filename: String,
         path: String,
         content_type: String,
@@ -615,46 +606,44 @@ pub fn record_action(
     }
 
     let event: Event = match action {
-        ExecutionAction::StartStep { step_heading } => exec_state
-            .start_step(&step_heading)
+        ExecutionAction::StartStep { step_id } => {
+            exec_state.start_step(&step_id).map_err(|e| e.to_string())?
+        }
+        ExecutionAction::CompleteStep { step_id } => exec_state
+            .complete_step(&step_id)
             .map_err(|e| e.to_string())?,
-        ExecutionAction::CompleteStep { step_heading } => exec_state
-            .complete_step(&step_heading)
-            .map_err(|e| e.to_string())?,
-        ExecutionAction::SkipStep {
-            step_heading,
-            reason,
-        } => exec_state
-            .skip_step(&step_heading, &reason)
+        ExecutionAction::SkipStep { step_id, reason } => exec_state
+            .skip_step(&step_id, &reason)
             .map_err(|e| e.to_string())?,
         ExecutionAction::ToggleCheckbox {
-            step_heading,
-            text,
+            step_id,
+            checkbox_id,
             checked,
         } => exec_state
-            .toggle_checkbox(&step_heading, &text, checked)
+            .toggle_checkbox(&step_id, &checkbox_id, checked)
             .map_err(|e| e.to_string())?,
         ExecutionAction::RecordInput {
-            step_heading,
-            label,
+            step_id,
+            input_id,
             value,
             unit,
         } => exec_state
-            .record_input(&step_heading, &label, &value, unit.as_deref())
+            .record_input(&step_id, &input_id, &value, unit.as_deref())
             .map_err(|e| e.to_string())?,
-        ExecutionAction::AddNote { text, step_heading } => exec_state
-            .add_note(&text, step_heading.as_deref())
+        ExecutionAction::AddNote { text, step_id } => exec_state
+            .add_note(&text, step_id.as_deref())
             .map_err(|e| e.to_string())?,
         ExecutionAction::AddStep {
+            step_id,
             heading,
             content,
-            after_step,
+            after_step_id,
         } => exec_state
-            .add_step(&heading, content, after_step.as_deref())
+            .add_step(&step_id, &heading, content, after_step_id.as_deref())
             .map_err(|e| e.to_string())?,
         ExecutionAction::AddAttachment {
-            step_heading,
-            label,
+            step_id,
+            input_id,
             filename,
             path,
             content_type,
@@ -672,8 +661,8 @@ pub fn record_action(
 
             exec_state
                 .add_attachment(
-                    &step_heading,
-                    &label,
+                    &step_id,
+                    &input_id,
                     &filename,
                     &relative_path,
                     &content_type,

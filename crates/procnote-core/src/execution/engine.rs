@@ -58,6 +58,8 @@ pub enum StepStatus {
 /// Tracked state for a single step during execution.
 #[derive(Debug, Clone)]
 pub struct StepState {
+    /// Stable element ID for this step.
+    pub id: String,
     pub heading: String,
     pub status: StepStatus,
     /// Ordered content items from the template (prose, checkboxes, input blocks).
@@ -173,89 +175,92 @@ impl ExecutionState {
                 self.status = ExecutionStatus::Finished(CompletionStatus::Aborted);
             }
             Event::StepAdded {
+                step_id,
                 heading,
                 content,
-                after_step,
+                after_step_id,
                 ..
             } => {
                 self.require_active()?;
-                if self.steps.contains_key(heading) {
+                if self.steps.contains_key(step_id) {
                     return Err(ExecutionError::DuplicateStepHeading(heading.clone()));
                 }
                 let step_state = StepState {
+                    id: step_id.clone(),
                     heading: heading.clone(),
                     status: StepStatus::Pending,
                     content: content.clone(),
                     inputs: HashMap::new(),
                     notes: Vec::new(),
                 };
-                self.steps.insert(heading.clone(), step_state);
-                match after_step {
+                self.steps.insert(step_id.clone(), step_state);
+                match after_step_id {
                     Some(after) => {
-                        if let Some(pos) = self.step_order.iter().position(|h| h == after) {
-                            self.step_order.insert(pos + 1, heading.clone());
+                        if let Some(pos) = self.step_order.iter().position(|id| id == after) {
+                            self.step_order.insert(pos + 1, step_id.clone());
                         } else {
-                            self.step_order.push(heading.clone());
+                            self.step_order.push(step_id.clone());
                         }
                     }
                     None => {
-                        self.step_order.push(heading.clone());
+                        self.step_order.push(step_id.clone());
                     }
                 }
             }
-            Event::StepStarted { step_heading, .. } => {
+            Event::StepStarted { step_id, .. } => {
                 self.require_active()?;
-                let step = self.get_step_mut(step_heading)?;
+                let step = self.get_step_mut(step_id)?;
                 match step.status {
                     StepStatus::Pending => step.status = StepStatus::Active,
                     StepStatus::Active => {
-                        return Err(ExecutionError::StepAlreadyStarted(step_heading.clone()));
+                        return Err(ExecutionError::StepAlreadyStarted(step_id.clone()));
                     }
                     StepStatus::Completed | StepStatus::Skipped => {
-                        return Err(ExecutionError::StepAlreadyFinished(step_heading.clone()));
+                        return Err(ExecutionError::StepAlreadyFinished(step_id.clone()));
                     }
                 }
             }
-            Event::StepCompleted { step_heading, .. } => {
+            Event::StepCompleted { step_id, .. } => {
                 self.require_active()?;
-                let step = self.get_step_mut(step_heading)?;
+                let step = self.get_step_mut(step_id)?;
                 match step.status {
                     StepStatus::Active => step.status = StepStatus::Completed,
                     StepStatus::Pending => {
-                        return Err(ExecutionError::StepNotStarted(step_heading.clone()));
+                        return Err(ExecutionError::StepNotStarted(step_id.clone()));
                     }
                     StepStatus::Completed | StepStatus::Skipped => {
-                        return Err(ExecutionError::StepAlreadyFinished(step_heading.clone()));
+                        return Err(ExecutionError::StepAlreadyFinished(step_id.clone()));
                     }
                 }
             }
-            Event::StepSkipped { step_heading, .. } => {
+            Event::StepSkipped { step_id, .. } => {
                 self.require_active()?;
-                let step = self.get_step_mut(step_heading)?;
+                let step = self.get_step_mut(step_id)?;
                 match step.status {
                     StepStatus::Pending | StepStatus::Active => {
                         step.status = StepStatus::Skipped;
                     }
                     StepStatus::Completed | StepStatus::Skipped => {
-                        return Err(ExecutionError::StepAlreadyFinished(step_heading.clone()));
+                        return Err(ExecutionError::StepAlreadyFinished(step_id.clone()));
                     }
                 }
             }
             Event::CheckboxToggled {
-                step_heading,
-                text,
+                step_id,
+                checkbox_id,
                 checked,
                 ..
             } => {
                 self.require_active()?;
-                let step = self.get_step_mut(step_heading)?;
-                // Find matching checkbox in content and update in-place.
+                let step = self.get_step_mut(step_id)?;
+                // Find matching checkbox in content by ID and update in-place.
                 let found = step.content.iter_mut().any(|item| {
                     if let StepContent::Checkbox {
-                        text: t,
+                        id: Some(id),
                         checked: c,
+                        ..
                     } = item
-                        && t == text
+                        && id == checkbox_id
                     {
                         *c = *checked;
                         return true;
@@ -265,36 +270,35 @@ impl ExecutionState {
                 if !found {
                     // Checkbox not from template — add dynamically.
                     step.content.push(StepContent::Checkbox {
-                        text: text.clone(),
+                        id: Some(checkbox_id.clone()),
+                        text: String::new(),
                         checked: *checked,
                     });
                 }
             }
             Event::InputRecorded {
-                step_heading,
-                label,
+                step_id,
+                input_id,
                 value,
                 unit,
                 ..
             } => {
                 self.require_active()?;
-                let step = self.get_step_mut(step_heading)?;
+                let step = self.get_step_mut(step_id)?;
                 step.inputs.insert(
-                    label.clone(),
+                    input_id.clone(),
                     RecordedInput {
-                        label: label.clone(),
+                        label: input_id.clone(),
                         value: value.clone(),
                         unit: unit.clone(),
                     },
                 );
             }
-            Event::NoteAdded {
-                text, step_heading, ..
-            } => {
+            Event::NoteAdded { text, step_id, .. } => {
                 self.require_active()?;
-                match step_heading {
-                    Some(heading) => {
-                        let step = self.get_step_mut(heading)?;
+                match step_id {
+                    Some(id) => {
+                        let step = self.get_step_mut(id)?;
                         step.notes.push(text.clone());
                     }
                     None => {
@@ -304,17 +308,17 @@ impl ExecutionState {
             }
 
             Event::AttachmentAdded {
-                step_heading,
-                label,
+                step_id,
+                input_id,
                 filename,
                 ..
             } => {
                 self.require_active()?;
-                let step = self.get_step_mut(step_heading)?;
+                let step = self.get_step_mut(step_id)?;
                 step.inputs.insert(
-                    label.clone(),
+                    input_id.clone(),
                     RecordedInput {
-                        label: label.clone(),
+                        label: input_id.clone(),
                         value: filename.clone(),
                         unit: None,
                     },
@@ -371,13 +375,37 @@ impl ExecutionState {
         events.push(named);
 
         // Add steps from the template, preserving content order.
-        for step in &template.steps {
+        // Assign stable IDs to each step and its interactive content items.
+        for (step_index, step) in template.steps.iter().enumerate() {
+            let step_id = format!("step-{step_index}");
+
+            // Assign IDs to content items.
+            let mut cb_index = 0usize;
+            let content: Vec<StepContent> = step
+                .content
+                .iter()
+                .map(|item| match item {
+                    StepContent::Checkbox { text, checked, .. } => {
+                        let id = format!("{step_id}/cb-{cb_index}");
+                        cb_index += 1;
+                        StepContent::Checkbox {
+                            id: Some(id),
+                            text: text.clone(),
+                            checked: *checked,
+                        }
+                    }
+                    // InputDefinition already has its own `id` from the template YAML.
+                    other => other.clone(),
+                })
+                .collect();
+
             let step_added = Event::StepAdded {
                 at: now,
                 execution_id,
+                step_id,
                 heading: step.heading.clone(),
-                content: step.content.clone(),
-                after_step: None,
+                content,
+                after_step_id: None,
             };
             self.apply(&step_added)?;
             events.push(step_added);
@@ -403,53 +431,55 @@ impl ExecutionState {
     /// Add a new step during execution.
     pub fn add_step(
         &mut self,
+        step_id: &str,
         heading: &str,
         content: Vec<StepContent>,
-        after_step: Option<&str>,
+        after_step_id: Option<&str>,
     ) -> Result<Event, ExecutionError> {
         self.require_active()?;
         let event = Event::StepAdded {
             at: Utc::now(),
             execution_id: self.require_execution_id()?,
+            step_id: step_id.to_string(),
             heading: heading.to_string(),
             content,
-            after_step: after_step.map(std::string::ToString::to_string),
+            after_step_id: after_step_id.map(std::string::ToString::to_string),
         };
         self.apply(&event)?;
         Ok(event)
     }
 
     /// Start a step.
-    pub fn start_step(&mut self, heading: &str) -> Result<Event, ExecutionError> {
+    pub fn start_step(&mut self, step_id: &str) -> Result<Event, ExecutionError> {
         self.require_active()?;
         let event = Event::StepStarted {
             at: Utc::now(),
             execution_id: self.require_execution_id()?,
-            step_heading: heading.to_string(),
+            step_id: step_id.to_string(),
         };
         self.apply(&event)?;
         Ok(event)
     }
 
     /// Complete a step.
-    pub fn complete_step(&mut self, heading: &str) -> Result<Event, ExecutionError> {
+    pub fn complete_step(&mut self, step_id: &str) -> Result<Event, ExecutionError> {
         self.require_active()?;
         let event = Event::StepCompleted {
             at: Utc::now(),
             execution_id: self.require_execution_id()?,
-            step_heading: heading.to_string(),
+            step_id: step_id.to_string(),
         };
         self.apply(&event)?;
         Ok(event)
     }
 
     /// Skip a step.
-    pub fn skip_step(&mut self, heading: &str, reason: &str) -> Result<Event, ExecutionError> {
+    pub fn skip_step(&mut self, step_id: &str, reason: &str) -> Result<Event, ExecutionError> {
         self.require_active()?;
         let event = Event::StepSkipped {
             at: Utc::now(),
             execution_id: self.require_execution_id()?,
-            step_heading: heading.to_string(),
+            step_id: step_id.to_string(),
             reason: reason.to_string(),
         };
         self.apply(&event)?;
@@ -459,16 +489,16 @@ impl ExecutionState {
     /// Toggle a checkbox in a step.
     pub fn toggle_checkbox(
         &mut self,
-        step_heading: &str,
-        text: &str,
+        step_id: &str,
+        checkbox_id: &str,
         checked: bool,
     ) -> Result<Event, ExecutionError> {
         self.require_active()?;
         let event = Event::CheckboxToggled {
             at: Utc::now(),
             execution_id: self.require_execution_id()?,
-            step_heading: step_heading.to_string(),
-            text: text.to_string(),
+            step_id: step_id.to_string(),
+            checkbox_id: checkbox_id.to_string(),
             checked,
         };
         self.apply(&event)?;
@@ -478,8 +508,8 @@ impl ExecutionState {
     /// Record an input value.
     pub fn record_input(
         &mut self,
-        step_heading: &str,
-        label: &str,
+        step_id: &str,
+        input_id: &str,
         value: &str,
         unit: Option<&str>,
     ) -> Result<Event, ExecutionError> {
@@ -487,8 +517,8 @@ impl ExecutionState {
         let event = Event::InputRecorded {
             at: Utc::now(),
             execution_id: self.require_execution_id()?,
-            step_heading: step_heading.to_string(),
-            label: label.to_string(),
+            step_id: step_id.to_string(),
+            input_id: input_id.to_string(),
             value: value.to_string(),
             unit: unit.map(std::string::ToString::to_string),
         };
@@ -497,17 +527,13 @@ impl ExecutionState {
     }
 
     /// Add a note.
-    pub fn add_note(
-        &mut self,
-        text: &str,
-        step_heading: Option<&str>,
-    ) -> Result<Event, ExecutionError> {
+    pub fn add_note(&mut self, text: &str, step_id: Option<&str>) -> Result<Event, ExecutionError> {
         self.require_active()?;
         let event = Event::NoteAdded {
             at: Utc::now(),
             execution_id: self.require_execution_id()?,
             text: text.to_string(),
-            step_heading: step_heading.map(std::string::ToString::to_string),
+            step_id: step_id.map(std::string::ToString::to_string),
         };
         self.apply(&event)?;
         Ok(event)
@@ -516,8 +542,8 @@ impl ExecutionState {
     /// Add an attachment.
     pub fn add_attachment(
         &mut self,
-        step_heading: &str,
-        label: &str,
+        step_id: &str,
+        input_id: &str,
         filename: &str,
         path: &str,
         content_type: &str,
@@ -527,8 +553,8 @@ impl ExecutionState {
         let event = Event::AttachmentAdded {
             at: Utc::now(),
             execution_id: self.require_execution_id()?,
-            step_heading: step_heading.to_string(),
-            label: label.to_string(),
+            step_id: step_id.to_string(),
+            input_id: input_id.to_string(),
             filename: filename.to_string(),
             path: path.to_string(),
             content_type: content_type.to_string(),
@@ -636,10 +662,10 @@ impl ExecutionState {
         self.execution_id.ok_or(ExecutionError::NotStarted)
     }
 
-    fn get_step_mut(&mut self, heading: &str) -> Result<&mut StepState, ExecutionError> {
+    fn get_step_mut(&mut self, step_id: &str) -> Result<&mut StepState, ExecutionError> {
         self.steps
-            .get_mut(heading)
-            .ok_or_else(|| ExecutionError::StepNotFound(heading.to_string()))
+            .get_mut(step_id)
+            .ok_or_else(|| ExecutionError::StepNotFound(step_id.to_string()))
     }
 }
 
@@ -667,14 +693,17 @@ mod tests {
             },
             steps: vec![
                 Step {
+                    id: None,
                     heading: "Preconditions".to_string(),
                     content: vec![],
                 },
                 Step {
+                    id: None,
                     heading: "Step 1: Power On".to_string(),
                     content: vec![],
                 },
                 Step {
+                    id: None,
                     heading: "Postconditions".to_string(),
                     content: vec![],
                 },
@@ -693,9 +722,13 @@ mod tests {
         assert_eq!(state.status, ExecutionStatus::Active);
         assert!(state.name.is_some());
         assert_eq!(state.step_order.len(), 3);
-        assert_eq!(state.step_order[0], "Preconditions");
-        assert_eq!(state.step_order[1], "Step 1: Power On");
-        assert_eq!(state.step_order[2], "Postconditions");
+        assert_eq!(state.step_order[0], "step-0");
+        assert_eq!(state.step_order[1], "step-1");
+        assert_eq!(state.step_order[2], "step-2");
+        // Verify headings are still preserved
+        assert_eq!(state.steps["step-0"].heading, "Preconditions");
+        assert_eq!(state.steps["step-1"].heading, "Step 1: Power On");
+        assert_eq!(state.steps["step-2"].heading, "Postconditions");
     }
 
     #[test]
@@ -738,31 +771,27 @@ mod tests {
         // Start
         all_events.extend(state.start(&template).unwrap());
 
-        // Step through preconditions
-        all_events.push(state.start_step("Preconditions").unwrap());
+        // Step through preconditions (step-0)
+        all_events.push(state.start_step("step-0").unwrap());
         all_events.push(
             state
-                .toggle_checkbox("Preconditions", "Check 1", true)
+                .toggle_checkbox("step-0", "step-0/cb-0", true)
                 .unwrap(),
         );
-        all_events.push(state.complete_step("Preconditions").unwrap());
+        all_events.push(state.complete_step("step-0").unwrap());
 
-        // Step 1
-        all_events.push(state.start_step("Step 1: Power On").unwrap());
+        // Step 1 (step-1)
+        all_events.push(state.start_step("step-1").unwrap());
         all_events.push(
             state
-                .record_input("Step 1: Power On", "Current", "120", Some("mA"))
+                .record_input("step-1", "current-draw", "120", Some("mA"))
                 .unwrap(),
         );
-        all_events.push(
-            state
-                .add_note("Voltage stable", Some("Step 1: Power On"))
-                .unwrap(),
-        );
-        all_events.push(state.complete_step("Step 1: Power On").unwrap());
+        all_events.push(state.add_note("Voltage stable", Some("step-1")).unwrap());
+        all_events.push(state.complete_step("step-1").unwrap());
 
-        // Skip postconditions
-        all_events.push(state.skip_step("Postconditions", "Not applicable").unwrap());
+        // Skip postconditions (step-2)
+        all_events.push(state.skip_step("step-2", "Not applicable").unwrap());
 
         // Complete
         all_events.push(state.complete(CompletionStatus::Pass).unwrap());
@@ -771,20 +800,14 @@ mod tests {
             state.status,
             ExecutionStatus::Finished(CompletionStatus::Pass)
         );
-        assert_eq!(state.steps["Preconditions"].status, StepStatus::Completed);
-        assert_eq!(
-            state.steps["Step 1: Power On"].status,
-            StepStatus::Completed
-        );
-        assert_eq!(state.steps["Postconditions"].status, StepStatus::Skipped);
-        assert!(state.steps["Preconditions"].content.iter().any(|item| {
-            matches!(item, StepContent::Checkbox { text, checked } if text == "Check 1" && *checked)
+        assert_eq!(state.steps["step-0"].status, StepStatus::Completed);
+        assert_eq!(state.steps["step-1"].status, StepStatus::Completed);
+        assert_eq!(state.steps["step-2"].status, StepStatus::Skipped);
+        assert!(state.steps["step-0"].content.iter().any(|item| {
+            matches!(item, StepContent::Checkbox { id: Some(id), checked, .. } if id == "step-0/cb-0" && *checked)
         }));
-        assert_eq!(
-            state.steps["Step 1: Power On"].inputs["Current"].value,
-            "120"
-        );
-        assert_eq!(state.steps["Step 1: Power On"].notes.len(), 1);
+        assert_eq!(state.steps["step-1"].inputs["current-draw"].value, "120");
+        assert_eq!(state.steps["step-1"].notes.len(), 1);
 
         // Replay from events
         let replayed = ExecutionState::from_events(&all_events).unwrap();
@@ -793,8 +816,8 @@ mod tests {
             ExecutionStatus::Finished(CompletionStatus::Pass)
         );
         assert_eq!(replayed.step_order.len(), 3);
-        assert!(replayed.steps["Preconditions"].content.iter().any(|item| {
-            matches!(item, StepContent::Checkbox { text, checked } if text == "Check 1" && *checked)
+        assert!(replayed.steps["step-0"].content.iter().any(|item| {
+            matches!(item, StepContent::Checkbox { id: Some(id), checked, .. } if id == "step-0/cb-0" && *checked)
         }));
     }
 
@@ -804,22 +827,23 @@ mod tests {
         let mut state = ExecutionState::new();
         state.start(&template).unwrap();
 
-        // Add a step after "Step 1: Power On"
+        // Add a step after "step-1" (Step 1: Power On)
         state
             .add_step(
+                "dyn-step-1",
                 "Step 1.5: Verification",
                 vec![StepContent::Prose {
                     text: "Extra verification step".to_string(),
                 }],
-                Some("Step 1: Power On"),
+                Some("step-1"),
             )
             .unwrap();
 
         assert_eq!(state.step_order.len(), 4);
-        assert_eq!(state.step_order[0], "Preconditions");
-        assert_eq!(state.step_order[1], "Step 1: Power On");
-        assert_eq!(state.step_order[2], "Step 1.5: Verification");
-        assert_eq!(state.step_order[3], "Postconditions");
+        assert_eq!(state.step_order[0], "step-0");
+        assert_eq!(state.step_order[1], "step-1");
+        assert_eq!(state.step_order[2], "dyn-step-1");
+        assert_eq!(state.step_order[3], "step-2");
     }
 
     #[test]
@@ -834,7 +858,7 @@ mod tests {
     #[test]
     fn test_cannot_act_before_start() {
         let mut state = ExecutionState::new();
-        let result = state.start_step("Step 1");
+        let result = state.start_step("step-0");
         assert_eq!(result.unwrap_err(), ExecutionError::NotStarted);
     }
 
@@ -845,7 +869,7 @@ mod tests {
         state.start(&template).unwrap();
         state.complete(CompletionStatus::Pass).unwrap();
 
-        let result = state.start_step("Preconditions");
+        let result = state.start_step("step-0");
         assert_eq!(result.unwrap_err(), ExecutionError::AlreadyFinished);
     }
 
@@ -855,10 +879,10 @@ mod tests {
         let mut state = ExecutionState::new();
         state.start(&template).unwrap();
 
-        let result = state.complete_step("Preconditions");
+        let result = state.complete_step("step-0");
         assert_eq!(
             result.unwrap_err(),
-            ExecutionError::StepNotStarted("Preconditions".to_string())
+            ExecutionError::StepNotStarted("step-0".to_string())
         );
     }
 
@@ -867,13 +891,13 @@ mod tests {
         let template = sample_template();
         let mut state = ExecutionState::new();
         state.start(&template).unwrap();
-        state.start_step("Preconditions").unwrap();
-        state.complete_step("Preconditions").unwrap();
+        state.start_step("step-0").unwrap();
+        state.complete_step("step-0").unwrap();
 
-        let result = state.start_step("Preconditions");
+        let result = state.start_step("step-0");
         assert_eq!(
             result.unwrap_err(),
-            ExecutionError::StepAlreadyFinished("Preconditions".to_string())
+            ExecutionError::StepAlreadyFinished("step-0".to_string())
         );
     }
 
@@ -895,12 +919,12 @@ mod tests {
         let template = sample_template();
         let mut state = ExecutionState::new();
         state.start(&template).unwrap();
-        state.start_step("Step 1: Power On").unwrap();
+        state.start_step("step-1").unwrap();
 
         state
             .add_attachment(
-                "Step 1: Power On",
-                "Log file",
+                "step-1",
+                "log-file",
                 "photo.jpg",
                 "attachments/photo.jpg",
                 "image/jpeg",
@@ -908,7 +932,7 @@ mod tests {
             )
             .unwrap();
 
-        let input = &state.steps["Step 1: Power On"].inputs["Log file"];
+        let input = &state.steps["step-1"].inputs["log-file"];
         assert_eq!(input.value, "photo.jpg");
     }
 
@@ -925,15 +949,15 @@ mod tests {
     }
 
     #[test]
-    fn test_duplicate_step_heading() {
+    fn test_duplicate_step_id() {
         let template = sample_template();
         let mut state = ExecutionState::new();
         state.start(&template).unwrap();
 
-        let result = state.add_step("Preconditions", vec![], None);
+        let result = state.add_step("step-0", "Preconditions Again", vec![], None);
         assert_eq!(
             result.unwrap_err(),
-            ExecutionError::DuplicateStepHeading("Preconditions".to_string())
+            ExecutionError::DuplicateStepHeading("Preconditions Again".to_string())
         );
     }
 
@@ -946,8 +970,8 @@ mod tests {
         let mut events: Vec<Event> = Vec::new();
         events.extend(state.start(&template).unwrap());
         // indices 0..4: ExecutionStarted + ExecutionRenamed + 3 StepAdded
-        events.push(state.start_step("Preconditions").unwrap()); // index 5
-        events.push(state.complete_step("Preconditions").unwrap()); // index 6
+        events.push(state.start_step("step-0").unwrap()); // index 5
+        events.push(state.complete_step("step-0").unwrap()); // index 6
         events
     }
 
@@ -960,7 +984,7 @@ mod tests {
 
         let state = ExecutionState::from_events(&events).unwrap();
         // Step should be back to Active (StepStarted still applies)
-        assert_eq!(state.steps["Preconditions"].status, StepStatus::Active);
+        assert_eq!(state.steps["step-0"].status, StepStatus::Active);
     }
 
     #[test]
@@ -969,13 +993,13 @@ mod tests {
         let mut state = ExecutionState::new();
         let mut events: Vec<Event> = Vec::new();
         events.extend(state.start(&template).unwrap());
-        events.push(state.start_step("Preconditions").unwrap()); // index 5
+        events.push(state.start_step("step-0").unwrap()); // index 5
 
         let revert = ExecutionState::revert_event(&events, 5, "wrong step").unwrap();
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
-        assert_eq!(state.steps["Preconditions"].status, StepStatus::Pending);
+        assert_eq!(state.steps["step-0"].status, StepStatus::Pending);
     }
 
     #[test]
@@ -984,13 +1008,13 @@ mod tests {
         let mut state = ExecutionState::new();
         let mut events: Vec<Event> = Vec::new();
         events.extend(state.start(&template).unwrap());
-        events.push(state.skip_step("Preconditions", "N/A").unwrap()); // index 5
+        events.push(state.skip_step("step-0", "N/A").unwrap()); // index 5
 
         let revert = ExecutionState::revert_event(&events, 5, "actually needed").unwrap();
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
-        assert_eq!(state.steps["Preconditions"].status, StepStatus::Pending);
+        assert_eq!(state.steps["step-0"].status, StepStatus::Pending);
     }
 
     #[test]
@@ -999,10 +1023,10 @@ mod tests {
         let mut state = ExecutionState::new();
         let mut events: Vec<Event> = Vec::new();
         events.extend(state.start(&template).unwrap());
-        events.push(state.start_step("Preconditions").unwrap());
+        events.push(state.start_step("step-0").unwrap());
         events.push(
             state
-                .record_input("Preconditions", "Voltage", "5.0", Some("V"))
+                .record_input("step-0", "voltage", "5.0", Some("V"))
                 .unwrap(),
         ); // index 6
 
@@ -1010,7 +1034,7 @@ mod tests {
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
-        assert!(!state.steps["Preconditions"].inputs.contains_key("Voltage"));
+        assert!(!state.steps["step-0"].inputs.contains_key("voltage"));
     }
 
     #[test]
@@ -1034,10 +1058,10 @@ mod tests {
         let mut state = ExecutionState::new();
         let mut events: Vec<Event> = Vec::new();
         events.extend(state.start(&template).unwrap());
-        events.push(state.start_step("Preconditions").unwrap());
+        events.push(state.start_step("step-0").unwrap());
         events.push(
             state
-                .toggle_checkbox("Preconditions", "Check A", true)
+                .toggle_checkbox("step-0", "step-0/dyn-cb-0", true)
                 .unwrap(),
         ); // index 6
 
@@ -1047,8 +1071,8 @@ mod tests {
         let state = ExecutionState::from_events(&events).unwrap();
         // The checkbox was dynamically added by the toggle; reverting removes it entirely
         // since it was not in the template.
-        assert!(!state.steps["Preconditions"].content.iter().any(|item| {
-            matches!(item, StepContent::Checkbox { text, .. } if text == "Check A")
+        assert!(!state.steps["step-0"].content.iter().any(|item| {
+            matches!(item, StepContent::Checkbox { id: Some(id), .. } if id == "step-0/dyn-cb-0")
         }));
     }
 
@@ -1073,12 +1097,12 @@ mod tests {
         let mut state = ExecutionState::new();
         let mut events: Vec<Event> = Vec::new();
         events.extend(state.start(&template).unwrap());
-        events.push(state.start_step("Step 1: Power On").unwrap()); // index 5
+        events.push(state.start_step("step-1").unwrap()); // index 5
         events.push(
             state
                 .add_attachment(
-                    "Step 1: Power On",
-                    "Log file",
+                    "step-1",
+                    "log-file",
                     "photo.jpg",
                     "path/photo.jpg",
                     "image/jpeg",
@@ -1091,11 +1115,7 @@ mod tests {
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
-        assert!(
-            !state.steps["Step 1: Power On"]
-                .inputs
-                .contains_key("Log file")
-        );
+        assert!(!state.steps["step-1"].inputs.contains_key("log-file"));
     }
 
     #[test]
@@ -1163,14 +1183,11 @@ mod tests {
 
         // Now rebuild state and complete the step again
         let mut state = ExecutionState::from_events(&events).unwrap();
-        assert_eq!(state.steps["Preconditions"].status, StepStatus::Active);
-        events.push(state.complete_step("Preconditions").unwrap());
+        assert_eq!(state.steps["step-0"].status, StepStatus::Active);
+        events.push(state.complete_step("step-0").unwrap());
 
         let final_state = ExecutionState::from_events(&events).unwrap();
-        assert_eq!(
-            final_state.steps["Preconditions"].status,
-            StepStatus::Completed
-        );
+        assert_eq!(final_state.steps["step-0"].status, StepStatus::Completed);
     }
 
     #[test]
@@ -1194,7 +1211,7 @@ mod tests {
             .map(|j| serde_json::from_str(j).unwrap())
             .collect();
         let state = ExecutionState::from_events(&deserialized_events).unwrap();
-        assert_eq!(state.steps["Preconditions"].status, StepStatus::Active);
+        assert_eq!(state.steps["step-0"].status, StepStatus::Active);
     }
 
     #[test]
@@ -1204,18 +1221,18 @@ mod tests {
         let mut events: Vec<Event> = Vec::new();
         events.extend(state.start(&template).unwrap());
 
-        // Start and complete Preconditions
-        events.push(state.start_step("Preconditions").unwrap()); // index 5
-        events.push(state.complete_step("Preconditions").unwrap()); // index 6
+        // Start and complete Preconditions (step-0)
+        events.push(state.start_step("step-0").unwrap()); // index 5
+        events.push(state.complete_step("step-0").unwrap()); // index 6
 
-        // Start and complete Step 1
-        events.push(state.start_step("Step 1: Power On").unwrap()); // index 7
+        // Start and complete Step 1 (step-1)
+        events.push(state.start_step("step-1").unwrap()); // index 7
         events.push(
             state
-                .record_input("Step 1: Power On", "Current", "120", Some("mA"))
+                .record_input("step-1", "current-draw", "120", Some("mA"))
                 .unwrap(),
         ); // index 8
-        events.push(state.complete_step("Step 1: Power On").unwrap()); // index 9
+        events.push(state.complete_step("step-1").unwrap()); // index 9
 
         // Revert Step 1 completion (index 9)
         let revert1 = ExecutionState::revert_event(&events, 9, "redo step 1").unwrap();
@@ -1226,12 +1243,8 @@ mod tests {
         events.push(revert2);
 
         let rebuilt = ExecutionState::from_events(&events).unwrap();
-        assert_eq!(rebuilt.steps["Preconditions"].status, StepStatus::Completed);
-        assert_eq!(rebuilt.steps["Step 1: Power On"].status, StepStatus::Active);
-        assert!(
-            !rebuilt.steps["Step 1: Power On"]
-                .inputs
-                .contains_key("Current")
-        );
+        assert_eq!(rebuilt.steps["step-0"].status, StepStatus::Completed);
+        assert_eq!(rebuilt.steps["step-1"].status, StepStatus::Active);
+        assert!(!rebuilt.steps["step-1"].inputs.contains_key("current-draw"));
     }
 }

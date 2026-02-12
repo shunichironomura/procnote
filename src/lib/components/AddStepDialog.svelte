@@ -2,32 +2,35 @@
     import type { StepContent } from "$lib/types";
 
     let {
-        stepHeadings,
+        steps,
         onconfirm,
         oncancel,
     }: {
-        stepHeadings: string[];
+        steps: { id: string; heading: string }[];
         onconfirm: (
+            stepId: string,
             heading: string,
             content: StepContent[],
-            afterStep?: string,
+            afterStepId?: string,
         ) => void;
         oncancel: () => void;
     } = $props();
 
     let heading = $state("");
     let description = $state("");
-    let afterStep = $state("");
+    let afterStepId = $state("");
 
     function submit() {
         if (!heading.trim()) return;
+        const stepId = `dyn-step-${crypto.randomUUID().slice(0, 8)}`;
         const content: StepContent[] = description.trim()
             ? [{ type: "Prose", text: description.trim() }]
             : [];
         onconfirm(
+            stepId,
             heading.trim(),
             content,
-            afterStep || undefined,
+            afterStepId || undefined,
         );
     }
 </script>
@@ -61,10 +64,10 @@
         </label>
         <label class="field">
             <span class="field-label">Insert After (optional)</span>
-            <select bind:value={afterStep}>
+            <select bind:value={afterStepId}>
                 <option value="">End of procedure</option>
-                {#each stepHeadings as h}
-                    <option value={h}>{h}</option>
+                {#each steps as s}
+                    <option value={s.id}>{s.heading}</option>
                 {/each}
             </select>
         </label>

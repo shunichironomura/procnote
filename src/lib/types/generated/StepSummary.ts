@@ -2,7 +2,7 @@
 import type { NoteState } from "./NoteState";
 import type { StepContentSummary } from "./StepContentSummary";
 
-export type StepSummary = { heading: string, status: string, 
+export type StepSummary = { id: string, heading: string, status: string, 
 /**
  * ISO 8601 timestamp of the most recent status change (started/completed/skipped).
  */

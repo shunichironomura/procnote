@@ -12,7 +12,7 @@
         definition: InputDefinition;
         recorded?: InputState;
         disabled?: boolean;
-        onrecord: (label: string, value: string, unit?: string) => void;
+        onrecord: (inputId: string, value: string, unit?: string) => void;
         onrevert?: () => void;
     } = $props();
 
@@ -24,7 +24,7 @@
     function submit() {
         const val = String(inputValue).trim();
         if (!val) return;
-        onrecord(definition.label, val, definition.unit);
+        onrecord(definition.id, val, definition.unit);
     }
 
     let expectedText = $derived.by(() => {
@@ -36,7 +36,7 @@
     });
 
     let isRecorded = $derived(!!recorded);
-    let inputId = $derived(`input-${definition.label.replace(/\s+/g, "-").toLowerCase()}`);
+    let inputId = $derived(`input-${definition.id}`);
 </script>
 
 <div class="input-field" class:recorded={isRecorded}>

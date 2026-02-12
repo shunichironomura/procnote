@@ -9,10 +9,10 @@ export type EventHistoryEntry = { index: number, event_type: string,
  */
 at: string, description: string, revertible: boolean, reverted: boolean, 
 /**
- * Step heading for step-scoped events, if applicable.
+ * Step ID for step-scoped events, if applicable.
  */
-step_heading?: string, 
+step_id?: string, 
 /**
- * Label for input/attachment events, if applicable.
+ * Element ID (`checkbox_id` or `input_id`) for element-scoped events, if applicable.
  */
-label?: string, };
+element_id?: string, };
