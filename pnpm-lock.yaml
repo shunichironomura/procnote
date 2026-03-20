@@ -28,10 +28,10 @@ importers:
         version: 11.11.1
       marked:
         specifier: ^17.0.1
-        version: 17.0.4
+        version: 17.0.5
       marked-highlight:
         specifier: ^2.2.3
-        version: 2.2.3(marked@17.0.4)
+        version: 2.2.3(marked@17.0.5)
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.3.14
@@ -547,8 +547,8 @@ packages:
     peerDependencies:
       marked: '>=4 <18'
 
-  marked@17.0.4:
-    resolution: {integrity: sha512-NOmVMM+KAokHMvjWmC5N/ZOvgmSWuqJB8FoYI019j4ogb/PeRMKoKIjReZ2w3376kkA8dSJIP8uD993Kxc0iRQ==}
+  marked@17.0.5:
+    resolution: {integrity: sha512-6hLvc0/JEbRjRgzI6wnT2P1XuM1/RrrDEX0kPt0N7jGm1133g6X7DlxFasUIx+72aKAr904GTxhSLDrd5DIlZg==}
     engines: {node: '>= 20'}
     hasBin: true
 
@@ -1031,11 +1031,11 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  marked-highlight@2.2.3(marked@17.0.4):
+  marked-highlight@2.2.3(marked@17.0.5):
     dependencies:
-      marked: 17.0.4
+      marked: 17.0.5
 
-  marked@17.0.4: {}
+  marked@17.0.5: {}
 
   mri@1.2.0: {}
 
