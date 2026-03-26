@@ -416,7 +416,17 @@ fn compute_sha256(path: &str) -> std::io::Result<String> {
     use sha2::{Digest, Sha256};
     let bytes = std::fs::read(path)?;
     let hash = Sha256::digest(&bytes);
-    Ok(format!("{hash:x}"))
+    Ok(hex_encode(hash.as_ref()))
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .fold(String::with_capacity(bytes.len() * 2), |mut output, b| {
+            std::fmt::Write::write_fmt(&mut output, format_args!("{b:02x}"))
+                .expect("writing to a String should never fail");
+            output
+        })
 }
 
 /// Format the execution directory name as `{YYYYMMDD}T{HHMMSS}-{uuid_8}`.
