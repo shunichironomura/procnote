@@ -3,6 +3,8 @@
 //! Each test deserializes an event from a "minimal" JSON string (only required
 //! fields, no optional fields). This catches missing `#[serde(default)]`
 //! annotations on new optional fields — if a new field is added without
+
+#![expect(clippy::unwrap_used, reason = "unwrap is acceptable in tests")]
 //! `default`, these tests will fail because old logs won't contain it.
 
 use procnote_core::event::types::Event;

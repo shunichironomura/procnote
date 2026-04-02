@@ -4,6 +4,8 @@
 //! `ExecutionState` matches expectations. If a field is renamed, a type changes,
 //! or a variant is removed, these tests break immediately.
 
+#![expect(clippy::unwrap_used, reason = "unwrap is acceptable in tests")]
+
 use std::path::Path;
 
 use procnote_core::event::read_log;
