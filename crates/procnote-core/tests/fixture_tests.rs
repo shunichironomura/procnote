@@ -26,23 +26,11 @@ fn v1_basic_execution_parses_to_finished_pass() {
         ExecutionStatus::Finished(procnote_core::event::types::CompletionStatus::Pass)
     ));
     assert_eq!(state.step_order.len(), 3);
-    assert_eq!(
-        state.steps["step-0"].status,
-        StepStatus::Completed
-    );
-    assert_eq!(
-        state.steps["step-1"].status,
-        StepStatus::Completed
-    );
-    assert_eq!(
-        state.steps["step-2"].status,
-        StepStatus::Completed
-    );
+    assert_eq!(state.steps["step-0"].status, StepStatus::Completed);
+    assert_eq!(state.steps["step-1"].status, StepStatus::Completed);
+    assert_eq!(state.steps["step-2"].status, StepStatus::Completed);
     // Verify input was recorded
-    assert_eq!(
-        state.steps["step-1"].inputs["step-1/temp"].value,
-        "-39.5"
-    );
+    assert_eq!(state.steps["step-1"].inputs["step-1/temp"].value, "-39.5");
 }
 
 #[test]
@@ -55,10 +43,7 @@ fn v1_with_reverts_applies_revert_correctly() {
         ExecutionStatus::Finished(procnote_core::event::types::CompletionStatus::Pass)
     ));
     // The reverted input (999) should not appear; the corrected value (-39.5) should.
-    assert_eq!(
-        state.steps["step-1"].inputs["step-1/temp"].value,
-        "-39.5"
-    );
+    assert_eq!(state.steps["step-1"].inputs["step-1/temp"].value, "-39.5");
 }
 
 #[test]
@@ -73,10 +58,7 @@ fn v1_all_event_types_parses_successfully() {
     assert_eq!(state.name.as_deref(), Some("Morning run"));
     assert_eq!(state.step_order.len(), 2);
     // step-1 was skipped then reverted, so it ended up completed
-    assert_eq!(
-        state.steps["step-1"].status,
-        StepStatus::Completed
-    );
+    assert_eq!(state.steps["step-1"].status, StepStatus::Completed);
     // Global note was recorded
     assert_eq!(state.global_notes.len(), 1);
     assert_eq!(state.global_notes[0], "Global observation");

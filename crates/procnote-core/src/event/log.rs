@@ -70,9 +70,7 @@ pub fn read_log(path: &Path) -> Result<Vec<LogEntry>, EventLogError> {
                     // Invalid JSON — corrupt/truncated line.
                     let preview: String = trimmed.chars().take(100).collect();
                     if line_idx + 1 == total_lines {
-                        log::warn!(
-                            "Skipping truncated line at end of event log: {preview}"
-                        );
+                        log::warn!("Skipping truncated line at end of event log: {preview}");
                     } else {
                         log::warn!(
                             "Skipping corrupt line {} in event log: {preview}",
@@ -286,7 +284,11 @@ mod tests {
         let json = serde_json::to_string(event).unwrap();
         writeln!(file, "{json}").unwrap();
         // Valid JSON but unknown type → should be Unknown
-        writeln!(file, r#"{{"type":"brand_new","at":"2025-01-01T00:00:00Z"}}"#).unwrap();
+        writeln!(
+            file,
+            r#"{{"type":"brand_new","at":"2025-01-01T00:00:00Z"}}"#
+        )
+        .unwrap();
         // Invalid JSON → should be skipped (corrupt)
         writeln!(file, "{{not valid json").unwrap();
         // Valid JSON but no type field → should be Unknown

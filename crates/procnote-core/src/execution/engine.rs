@@ -141,10 +141,7 @@ impl ExecutionState {
             }
             match entry {
                 LogEntry::Event(event) => {
-                    if matches!(
-                        event,
-                        Event::EventReverted { .. } | Event::LogMeta { .. }
-                    ) {
+                    if matches!(event, Event::EventReverted { .. } | Event::LogMeta { .. }) {
                         continue;
                     }
                     state.apply(event)?;
@@ -1031,7 +1028,8 @@ mod tests {
         events.extend(state.start(&template).unwrap());
         events.push(state.start_step("step-0").unwrap()); // index 5
 
-        let revert = ExecutionState::revert_event(&to_log_entries(&events), 5, "wrong step").unwrap();
+        let revert =
+            ExecutionState::revert_event(&to_log_entries(&events), 5, "wrong step").unwrap();
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
@@ -1046,7 +1044,8 @@ mod tests {
         events.extend(state.start(&template).unwrap());
         events.push(state.skip_step("step-0", "N/A").unwrap()); // index 5
 
-        let revert = ExecutionState::revert_event(&to_log_entries(&events), 5, "actually needed").unwrap();
+        let revert =
+            ExecutionState::revert_event(&to_log_entries(&events), 5, "actually needed").unwrap();
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
@@ -1066,7 +1065,8 @@ mod tests {
                 .unwrap(),
         ); // index 6
 
-        let revert = ExecutionState::revert_event(&to_log_entries(&events), 6, "wrong value").unwrap();
+        let revert =
+            ExecutionState::revert_event(&to_log_entries(&events), 6, "wrong value").unwrap();
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
@@ -1101,7 +1101,8 @@ mod tests {
                 .unwrap(),
         ); // index 6
 
-        let revert = ExecutionState::revert_event(&to_log_entries(&events), 6, "undo check").unwrap();
+        let revert =
+            ExecutionState::revert_event(&to_log_entries(&events), 6, "undo check").unwrap();
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
@@ -1120,7 +1121,8 @@ mod tests {
         events.extend(state.start(&template).unwrap());
         events.push(state.complete(CompletionStatus::Pass).unwrap()); // index 5
 
-        let revert = ExecutionState::revert_event(&to_log_entries(&events), 5, "not done yet").unwrap();
+        let revert =
+            ExecutionState::revert_event(&to_log_entries(&events), 5, "not done yet").unwrap();
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
@@ -1147,7 +1149,8 @@ mod tests {
                 .unwrap(),
         ); // index 6
 
-        let revert = ExecutionState::revert_event(&to_log_entries(&events), 6, "wrong file").unwrap();
+        let revert =
+            ExecutionState::revert_event(&to_log_entries(&events), 6, "wrong file").unwrap();
         events.push(revert);
 
         let state = ExecutionState::from_events(&events).unwrap();
@@ -1229,7 +1232,8 @@ mod tests {
     #[test]
     fn test_revert_serialization_roundtrip() {
         let mut events = events_with_completed_step();
-        let revert = ExecutionState::revert_event(&to_log_entries(&events), 6, "test reason").unwrap();
+        let revert =
+            ExecutionState::revert_event(&to_log_entries(&events), 6, "test reason").unwrap();
         events.push(revert.clone());
 
         // Serialize and deserialize
@@ -1271,11 +1275,13 @@ mod tests {
         events.push(state.complete_step("step-1").unwrap()); // index 9
 
         // Revert Step 1 completion (index 9)
-        let revert1 = ExecutionState::revert_event(&to_log_entries(&events), 9, "redo step 1").unwrap();
+        let revert1 =
+            ExecutionState::revert_event(&to_log_entries(&events), 9, "redo step 1").unwrap();
         events.push(revert1);
 
         // Also revert the input (index 8)
-        let revert2 = ExecutionState::revert_event(&to_log_entries(&events), 8, "wrong reading").unwrap();
+        let revert2 =
+            ExecutionState::revert_event(&to_log_entries(&events), 8, "wrong reading").unwrap();
         events.push(revert2);
 
         let rebuilt = ExecutionState::from_events(&events).unwrap();

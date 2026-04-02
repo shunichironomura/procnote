@@ -655,8 +655,7 @@ pub fn record_action(
         entries.push(LogEntry::Event(revert_marker));
 
         // Rebuild state from the full event log.
-        let exec_state =
-            ExecutionState::from_log_entries(&entries).map_err(|e| e.to_string())?;
+        let exec_state = ExecutionState::from_log_entries(&entries).map_err(|e| e.to_string())?;
 
         return Ok(summarize(&exec_state, Some(&entries), exec_dir));
     }
