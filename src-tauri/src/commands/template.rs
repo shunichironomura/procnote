@@ -48,7 +48,10 @@ pub fn list_templates(state: State<'_, AppState>) -> Result<Vec<TemplateSummary>
             );
             continue;
         }
-        log::info!("list_templates: parsing template {}", template_path.display());
+        log::info!(
+            "list_templates: parsing template {}",
+            template_path.display()
+        );
         let source = std::fs::read_to_string(&template_path).map_err(|e| e.to_string())?;
         match parse_template(&source) {
             Ok(template) => {
