@@ -36,35 +36,41 @@ pub fn list_templates(state: State<'_, AppState>) -> Result<Vec<TemplateSummary>
 
     for entry in entries {
         let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
-        log::debug!("list_templates: found entry {}", path.display());
-        if path.extension().and_then(|e| e.to_str()) == Some("md") {
-            log::info!("list_templates: parsing template {}", path.display());
-            let source = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-            match parse_template(&source) {
-                Ok(template) => {
-                    log::info!(
-                        "list_templates: OK — id={}, title={}, steps={}",
-                        template.metadata.id,
-                        template.metadata.title,
-                        template.steps.len()
-                    );
-                    summaries.push(TemplateSummary {
-                        id: template.metadata.id,
-                        title: template.metadata.title,
-                        version: template.metadata.version,
-                        path: path.to_string_lossy().to_string(),
-                    });
-                }
-                Err(e) => {
-                    log::warn!(
-                        "list_templates: skipping invalid template {}: {e}",
-                        path.display()
-                    );
-                }
+        let subdir = entry.path();
+        if !subdir.is_dir() {
+            continue;
+        }
+        let template_path = subdir.join("template.md");
+        if !template_path.exists() {
+            log::debug!(
+                "list_templates: skipping directory without template.md: {}",
+                subdir.display()
+            );
+            continue;
+        }
+        log::info!("list_templates: parsing template {}", template_path.display());
+        let source = std::fs::read_to_string(&template_path).map_err(|e| e.to_string())?;
+        match parse_template(&source) {
+            Ok(template) => {
+                log::info!(
+                    "list_templates: OK — id={}, title={}, steps={}",
+                    template.metadata.id,
+                    template.metadata.title,
+                    template.steps.len()
+                );
+                summaries.push(TemplateSummary {
+                    id: template.metadata.id,
+                    title: template.metadata.title,
+                    version: template.metadata.version,
+                    path: template_path.to_string_lossy().to_string(),
+                });
             }
-        } else {
-            log::debug!("list_templates: skipping non-.md file {}", path.display());
+            Err(e) => {
+                log::warn!(
+                    "list_templates: skipping invalid template {}: {e}",
+                    template_path.display()
+                );
+            }
         }
     }
 

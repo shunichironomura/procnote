@@ -26,7 +26,7 @@
 
 ### Tauri shell (`src-tauri`)
 
-- `AppState` holds `procedures_dir` and `executions_dir` paths.
+- `AppState` holds a single `procedures_dir` path. Each procedure is a subdirectory containing `template.md` and `.executions/`.
 - `summarize()` converts `ExecutionState` + raw events into `ExecutionSummary` DTO for the frontend, building timestamp maps from non-reverted events.
 - Every `record_action` call re-reads and replays the full event log from disk (no in-memory cache, by design).
 - Attachments are stored as `attachments/{sha256_7}-{filename}` inside the execution directory.
@@ -37,19 +37,23 @@
 - TypeScript types in `lib/types/generated/` are auto-generated from Rust via `ts-rs`. Regenerate with `cargo test --workspace export_bindings_`. CI enforces they stay in sync.
 - `chrono` is a dependency of `procnote-core` but NOT of `procnote-tauri`; timestamps cross the IPC boundary as ISO 8601 strings.
 
-### Execution storage layout
+### Storage layout
 
 ```text
-.executions/{YYYYMMDD}T{HHMMSS}-{uuid_8}/
-├── events.jsonl        # Append-only event log
-├── template.md         # Snapshot of procedure template at execution start
-└── attachments/
-    └── {sha256_7}-{filename}
+procedures/
+├── <procedure-name>/
+│   ├── template.md         # Procedure template (Markdown + YAML frontmatter)
+│   └── .executions/
+│       └── {YYYYMMDD}T{HHMMSS}-{uuid_8}/
+│           ├── events.jsonl        # Append-only event log
+│           ├── template.md         # Snapshot of procedure template at execution start
+│           └── attachments/
+│               └── {sha256_7}-{filename}
 ```
 
 ## Development
 
-- `just dev` — runs the Tauri dev server (passes `--procedures-dir` and `--executions-dir` explicitly).
+- `just dev` — runs the Tauri dev server (passes `--procedures-dir` explicitly).
 - `cargo test --workspace` — runs all Rust tests (46+ tests across core).
 - `npx svelte-check` — TypeScript type checking for frontend.
 - `biome` — frontend linting/formatting.

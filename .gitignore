@@ -11,8 +11,8 @@ node_modules
 # Rust
 /target
 
-# Runtime data
-/.executions
+# Runtime data (execution logs inside each procedure directory)
+.executions
 
 # OS
 .DS_Store
