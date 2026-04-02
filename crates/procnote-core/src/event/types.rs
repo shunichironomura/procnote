@@ -130,6 +130,41 @@ pub enum Event {
         /// Human-readable reason for the revert (audit trail).
         reason: String,
     },
+
+    // -- Log metadata --
+    /// First-line metadata about the event log format.
+    /// Enables future migration code to detect schema version before replay.
+    LogMeta {
+        at: DateTime<Utc>,
+        /// Schema version of the event log (currently 1).
+        version: u32,
+        /// Version of the procnote tool that created this log.
+        tool_version: String,
+    },
+}
+
+/// A single entry in the event log.
+///
+/// May be a known [`Event`], or an unknown JSON object from a newer version
+/// of procnote that this version doesn't understand.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LogEntry {
+    /// A recognized event type.
+    Event(Event),
+    /// A valid JSON object whose `"type"` value is not recognized by this
+    /// version. Preserved verbatim so that unknown events are never lost.
+    Unknown(serde_json::Value),
+}
+
+impl LogEntry {
+    /// Returns a reference to the inner [`Event`] if this is a known entry.
+    #[must_use]
+    pub const fn as_event(&self) -> Option<&Event> {
+        match self {
+            Self::Event(e) => Some(e),
+            Self::Unknown(_) => None,
+        }
+    }
 }
 
 /// Whether an event can be reverted.
@@ -151,8 +186,10 @@ impl Event {
     #[must_use]
     pub const fn revertibility(&self) -> Revertibility {
         match self {
-            // Lifecycle/structural — not revertible
-            Self::ExecutionStarted { .. } | Self::StepAdded { .. } => Revertibility::NotRevertible,
+            // Lifecycle/structural/metadata — not revertible
+            Self::ExecutionStarted { .. } | Self::StepAdded { .. } | Self::LogMeta { .. } => {
+                Revertibility::NotRevertible
+            }
 
             // Everything else (except revert markers) — revertible
             Self::ExecutionCompleted { .. }
@@ -238,6 +275,13 @@ impl Event {
                 ..
             } => {
                 format!("Reverted event #{reverted_event_index}: {reason}")
+            }
+            Self::LogMeta {
+                version,
+                tool_version,
+                ..
+            } => {
+                format!("Log metadata v{version} (tool {tool_version})")
             }
         }
     }
