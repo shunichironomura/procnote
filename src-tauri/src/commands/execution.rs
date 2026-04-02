@@ -6,8 +6,8 @@ use tauri::State;
 use ts_rs::TS;
 
 use crate::state::AppState;
-use procnote_core::event::types::{CompletionStatus, Event, ExecutionId, Revertibility};
-use procnote_core::event::{append_event, read_events};
+use procnote_core::event::types::{CompletionStatus, Event, ExecutionId, LogEntry, Revertibility};
+use procnote_core::event::{append_event, read_log};
 use procnote_core::execution::{ExecutionState, StepStatus};
 use procnote_core::template::parse_template;
 use procnote_core::template::types::{InputDefinition, StepContent};
@@ -153,21 +153,21 @@ fn step_status_string(status: &StepStatus) -> String {
 )]
 fn summarize(
     state: &ExecutionState,
-    events: Option<&[Event]>,
+    entries: Option<&[LogEntry]>,
     execution_dir: &Path,
 ) -> ExecutionSummary {
     use std::collections::{HashMap, HashSet};
 
-    let events_slice = events.unwrap_or(&[]);
+    let entries_slice = entries.unwrap_or(&[]);
 
     // Collect reverted event indices so we can skip them.
-    let reverted_indices: HashSet<usize> = events_slice
+    let reverted_indices: HashSet<usize> = entries_slice
         .iter()
-        .filter_map(|e| match e {
-            Event::EventReverted {
+        .filter_map(|entry| match entry {
+            LogEntry::Event(Event::EventReverted {
                 reverted_event_index,
                 ..
-            } => Some(*reverted_event_index),
+            }) => Some(*reverted_event_index),
             _ => None,
         })
         .collect();
@@ -189,10 +189,13 @@ fn summarize(
     let mut note_at: HashMap<(&str, usize), String> = HashMap::new();
     let mut note_counts: HashMap<&str, usize> = HashMap::new();
 
-    for (index, event) in events_slice.iter().enumerate() {
+    for (index, entry) in entries_slice.iter().enumerate() {
         if reverted_indices.contains(&index) {
             continue;
         }
+        let Some(event) = entry.as_event() else {
+            continue;
+        };
         match event {
             Event::ExecutionStarted { at, .. } => {
                 started_at = Some(at.to_rfc3339());
@@ -299,7 +302,7 @@ fn summarize(
         })
         .collect();
 
-    let event_history = build_event_history(events_slice);
+    let event_history = build_event_history(entries_slice);
 
     ExecutionSummary {
         execution_id: state.execution_id.unwrap_or_default(),
@@ -316,37 +319,61 @@ fn summarize(
     }
 }
 
-fn build_event_history(events: &[Event]) -> Vec<EventHistoryEntry> {
+fn build_event_history(entries: &[LogEntry]) -> Vec<EventHistoryEntry> {
     use std::collections::HashSet;
 
     // Collect reverted indices.
-    let reverted_indices: HashSet<usize> = events
+    let reverted_indices: HashSet<usize> = entries
         .iter()
-        .filter_map(|e| match e {
-            Event::EventReverted {
+        .filter_map(|entry| match entry {
+            LogEntry::Event(Event::EventReverted {
                 reverted_event_index,
                 ..
-            } => Some(*reverted_event_index),
+            }) => Some(*reverted_event_index),
             _ => None,
         })
         .collect();
 
-    events
+    entries
         .iter()
         .enumerate()
-        .map(|(index, event)| {
-            let revertible = event.revertibility() == Revertibility::Revertible
-                && !reverted_indices.contains(&index);
-            let (step_id, element_id) = event_step_and_label(event);
-            EventHistoryEntry {
-                index,
-                event_type: event_type_string(event),
-                at: event_at(event),
-                description: event.description(),
-                revertible,
-                reverted: reverted_indices.contains(&index),
-                step_id,
-                element_id,
+        .map(|(index, entry)| match entry {
+            LogEntry::Event(event) => {
+                let revertible = event.revertibility() == Revertibility::Revertible
+                    && !reverted_indices.contains(&index);
+                let (step_id, element_id) = event_step_and_label(event);
+                EventHistoryEntry {
+                    index,
+                    event_type: event_type_string(event),
+                    at: event_at(event),
+                    description: event.description(),
+                    revertible,
+                    reverted: reverted_indices.contains(&index),
+                    step_id,
+                    element_id,
+                }
+            }
+            LogEntry::Unknown(raw) => {
+                let event_type = raw
+                    .get("type")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("unknown")
+                    .to_string();
+                let at = raw
+                    .get("at")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                EventHistoryEntry {
+                    index,
+                    event_type,
+                    at,
+                    description: "Unknown event type".to_string(),
+                    revertible: false,
+                    reverted: reverted_indices.contains(&index),
+                    step_id: None,
+                    element_id: None,
+                }
             }
         })
         .collect()
@@ -389,6 +416,7 @@ fn event_type_string(event: &Event) -> String {
         Event::AttachmentAdded { .. } => "attachment_added",
         Event::ExecutionRenamed { .. } => "execution_renamed",
         Event::EventReverted { .. } => "event_reverted",
+        Event::LogMeta { .. } => "log_meta",
     }
     .to_string()
 }
@@ -407,7 +435,8 @@ fn event_at(event: &Event) -> String {
         | Event::NoteAdded { at, .. }
         | Event::AttachmentAdded { at, .. }
         | Event::ExecutionRenamed { at, .. }
-        | Event::EventReverted { at, .. } => at.to_rfc3339(),
+        | Event::EventReverted { at, .. }
+        | Event::LogMeta { at, .. } => at.to_rfc3339(),
     }
 }
 
@@ -465,16 +494,16 @@ fn find_execution_dir(procedures_dir: &Path, execution_id: ExecutionId) -> Optio
 fn load_execution_from_disk(
     procedures_dir: &Path,
     execution_id: ExecutionId,
-) -> Result<(ExecutionState, Vec<Event>, PathBuf), String> {
+) -> Result<(ExecutionState, Vec<LogEntry>, PathBuf), String> {
     let exec_dir = find_execution_dir(procedures_dir, execution_id)
         .ok_or_else(|| format!("Execution not found: {execution_id}"))?;
     let log_path = exec_dir.join("events.jsonl");
     if !log_path.exists() {
         return Err(format!("Execution not found: {execution_id}"));
     }
-    let events = read_events(&log_path).map_err(|e| e.to_string())?;
-    let state = ExecutionState::from_events(&events).map_err(|e| e.to_string())?;
-    Ok((state, events, log_path))
+    let entries = read_log(&log_path).map_err(|e| e.to_string())?;
+    let state = ExecutionState::from_log_entries(&entries).map_err(|e| e.to_string())?;
+    Ok((state, entries, log_path))
 }
 
 /// Start a new execution from a template file.
@@ -516,13 +545,22 @@ pub fn start_execution(template_path: String) -> Result<ExecutionSummary, String
     let template_snapshot = exec_dir.join("template.md");
     std::fs::copy(&template_path, &template_snapshot).map_err(|e| e.to_string())?;
 
-    // Write events to log.
+    // Write events to log, starting with a log metadata line.
     let log_path = exec_dir.join("events.jsonl");
+    let log_meta = Event::LogMeta {
+        at: Utc::now(),
+        version: 1,
+        tool_version: env!("CARGO_PKG_VERSION").to_string(),
+    };
+    append_event(&log_path, &log_meta).map_err(|e| e.to_string())?;
     for event in &events {
         append_event(&log_path, event).map_err(|e| e.to_string())?;
     }
 
-    Ok(summarize(&exec_state, Some(&events), &exec_dir))
+    // Convert to LogEntry for summarize.
+    let mut entries: Vec<LogEntry> = vec![LogEntry::Event(log_meta)];
+    entries.extend(events.into_iter().map(LogEntry::Event));
+    Ok(summarize(&exec_state, Some(&entries), &exec_dir))
 }
 
 /// Action payload from the frontend for recording events.
@@ -599,27 +637,27 @@ pub fn record_action(
     action: ExecutionAction,
 ) -> Result<ExecutionSummary, String> {
     log::debug!("record_action: execution={execution_id}, action={action:?}");
-    let (mut exec_state, mut events, log_path) =
+    let (mut exec_state, mut entries, log_path) =
         load_execution_from_disk(&state.procedures_dir, execution_id)?;
     let exec_dir = log_path.parent().expect("log_path must have a parent");
 
-    // Revert is a special case: it rebuilds state from events.
+    // Revert is a special case: it rebuilds state from entries.
     if let ExecutionAction::RevertEvent {
         event_index,
         reason,
     } = action
     {
-        let revert_marker = ExecutionState::revert_event(&events, event_index, &reason)
+        let revert_marker = ExecutionState::revert_event(&entries, event_index, &reason)
             .map_err(|e| e.to_string())?;
 
         // Persist the revert marker.
         append_event(&log_path, &revert_marker).map_err(|e| e.to_string())?;
-        events.push(revert_marker);
+        entries.push(LogEntry::Event(revert_marker));
 
         // Rebuild state from the full event log.
-        let exec_state = ExecutionState::from_events(&events).map_err(|e| e.to_string())?;
+        let exec_state = ExecutionState::from_log_entries(&entries).map_err(|e| e.to_string())?;
 
-        return Ok(summarize(&exec_state, Some(&events), exec_dir));
+        return Ok(summarize(&exec_state, Some(&entries), exec_dir));
     }
 
     let event: Event = match action {
@@ -701,9 +739,9 @@ pub fn record_action(
 
     // Persist event.
     append_event(&log_path, &event).map_err(|e| e.to_string())?;
-    events.push(event);
+    entries.push(LogEntry::Event(event));
 
-    Ok(summarize(&exec_state, Some(&events), exec_dir))
+    Ok(summarize(&exec_state, Some(&entries), exec_dir))
 }
 
 /// Get the current state of an execution.
@@ -716,10 +754,10 @@ pub fn get_execution_state(
     state: State<'_, AppState>,
     execution_id: ExecutionId,
 ) -> Result<ExecutionSummary, String> {
-    let (exec_state, events, log_path) =
+    let (exec_state, entries, log_path) =
         load_execution_from_disk(&state.procedures_dir, execution_id)?;
     let exec_dir = log_path.parent().expect("log_path must have a parent");
-    Ok(summarize(&exec_state, Some(&events), exec_dir))
+    Ok(summarize(&exec_state, Some(&entries), exec_dir))
 }
 
 /// List all executions by scanning each procedure's `.executions/` subdirectory.
@@ -753,21 +791,21 @@ pub fn list_executions(state: State<'_, AppState>) -> Result<Vec<ExecutionSummar
             if !log_path.exists() {
                 continue;
             }
-            let events = match read_events(&log_path) {
-                Ok(events) => events,
+            let log_entries = match read_log(&log_path) {
+                Ok(entries) => entries,
                 Err(e) => {
                     log::warn!("Failed to read events from {}: {e}", log_path.display());
                     continue;
                 }
             };
-            let exec_state = match ExecutionState::from_events(&events) {
+            let exec_state = match ExecutionState::from_log_entries(&log_entries) {
                 Ok(state) => state,
                 Err(e) => {
                     log::warn!("Failed to replay events from {}: {e}", log_path.display());
                     continue;
                 }
             };
-            summaries.push(summarize(&exec_state, Some(&events), &dir_path));
+            summaries.push(summarize(&exec_state, Some(&log_entries), &dir_path));
         }
     }
 
