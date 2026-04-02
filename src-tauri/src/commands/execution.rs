@@ -438,17 +438,24 @@ fn execution_dir_name(at: &DateTime<Utc>, execution_id: ExecutionId) -> String {
     )
 }
 
-/// Find the execution directory by matching the short UUID suffix.
-fn find_execution_dir(executions_dir: &Path, execution_id: ExecutionId) -> Option<PathBuf> {
+/// Find the execution directory by scanning all procedure subdirectories.
+fn find_execution_dir(procedures_dir: &Path, execution_id: ExecutionId) -> Option<PathBuf> {
     let suffix = format!("-{}", &execution_id.to_string()[..8]);
-    let entries = std::fs::read_dir(executions_dir).ok()?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir()
-            && let Some(name) = path.file_name().and_then(|n| n.to_str())
-            && name.ends_with(&suffix)
-        {
-            return Some(path);
+    let proc_entries = std::fs::read_dir(procedures_dir).ok()?;
+    for proc_entry in proc_entries.flatten() {
+        let exec_base = proc_entry.path().join(".executions");
+        if !exec_base.is_dir() {
+            continue;
+        }
+        let entries = std::fs::read_dir(&exec_base).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir()
+                && let Some(name) = path.file_name().and_then(|n| n.to_str())
+                && name.ends_with(&suffix)
+            {
+                return Some(path);
+            }
         }
     }
     None
@@ -456,10 +463,10 @@ fn find_execution_dir(executions_dir: &Path, execution_id: ExecutionId) -> Optio
 
 /// Load an execution from disk by replaying its event log.
 fn load_execution_from_disk(
-    executions_dir: &Path,
+    procedures_dir: &Path,
     execution_id: ExecutionId,
 ) -> Result<(ExecutionState, Vec<Event>, PathBuf), String> {
-    let exec_dir = find_execution_dir(executions_dir, execution_id)
+    let exec_dir = find_execution_dir(procedures_dir, execution_id)
         .ok_or_else(|| format!("Execution not found: {execution_id}"))?;
     let log_path = exec_dir.join("events.jsonl");
     if !log_path.exists() {
@@ -476,10 +483,7 @@ fn load_execution_from_disk(
     clippy::needless_pass_by_value,
     reason = "Tauri command handlers require owned parameters"
 )]
-pub fn start_execution(
-    state: State<'_, AppState>,
-    template_path: String,
-) -> Result<ExecutionSummary, String> {
+pub fn start_execution(template_path: String) -> Result<ExecutionSummary, String> {
     let source = std::fs::read_to_string(&template_path).map_err(|e| e.to_string())?;
     let template = parse_template(&source).map_err(|e| e.to_string())?;
 
@@ -499,9 +503,12 @@ pub fn start_execution(
         })
         .expect("start() must produce an ExecutionStarted event");
 
-    // Create execution directory and log file.
-    let exec_dir = state
-        .executions_dir
+    // Create execution directory under the procedure's .executions/ subdirectory.
+    let procedure_dir = Path::new(&template_path)
+        .parent()
+        .ok_or("template_path has no parent directory")?;
+    let exec_dir = procedure_dir
+        .join(".executions")
         .join(execution_dir_name(&started_at, execution_id));
     std::fs::create_dir_all(&exec_dir).map_err(|e| e.to_string())?;
 
@@ -593,7 +600,7 @@ pub fn record_action(
 ) -> Result<ExecutionSummary, String> {
     log::debug!("record_action: execution={execution_id}, action={action:?}");
     let (mut exec_state, mut events, log_path) =
-        load_execution_from_disk(&state.executions_dir, execution_id)?;
+        load_execution_from_disk(&state.procedures_dir, execution_id)?;
     let exec_dir = log_path.parent().expect("log_path must have a parent");
 
     // Revert is a special case: it rebuilds state from events.
@@ -710,12 +717,12 @@ pub fn get_execution_state(
     execution_id: ExecutionId,
 ) -> Result<ExecutionSummary, String> {
     let (exec_state, events, log_path) =
-        load_execution_from_disk(&state.executions_dir, execution_id)?;
+        load_execution_from_disk(&state.procedures_dir, execution_id)?;
     let exec_dir = log_path.parent().expect("log_path must have a parent");
     Ok(summarize(&exec_state, Some(&events), exec_dir))
 }
 
-/// List all executions by scanning the executions directory on disk.
+/// List all executions by scanning each procedure's `.executions/` subdirectory.
 #[tauri::command]
 #[expect(
     clippy::needless_pass_by_value,
@@ -724,36 +731,44 @@ pub fn get_execution_state(
 pub fn list_executions(state: State<'_, AppState>) -> Result<Vec<ExecutionSummary>, String> {
     let mut summaries = Vec::new();
 
-    if !state.executions_dir.exists() {
+    if !state.procedures_dir.exists() {
         return Ok(summaries);
     }
 
-    let entries = std::fs::read_dir(&state.executions_dir).map_err(|e| e.to_string())?;
-    for entry in entries {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let dir_path = entry.path();
-        if !dir_path.is_dir() {
+    let proc_entries = std::fs::read_dir(&state.procedures_dir).map_err(|e| e.to_string())?;
+    for proc_entry in proc_entries {
+        let proc_entry = proc_entry.map_err(|e| e.to_string())?;
+        let exec_base = proc_entry.path().join(".executions");
+        if !exec_base.is_dir() {
             continue;
         }
-        let log_path = dir_path.join("events.jsonl");
-        if !log_path.exists() {
-            continue;
+        let entries = std::fs::read_dir(&exec_base).map_err(|e| e.to_string())?;
+        for entry in entries {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let dir_path = entry.path();
+            if !dir_path.is_dir() {
+                continue;
+            }
+            let log_path = dir_path.join("events.jsonl");
+            if !log_path.exists() {
+                continue;
+            }
+            let events = match read_events(&log_path) {
+                Ok(events) => events,
+                Err(e) => {
+                    log::warn!("Failed to read events from {}: {e}", log_path.display());
+                    continue;
+                }
+            };
+            let exec_state = match ExecutionState::from_events(&events) {
+                Ok(state) => state,
+                Err(e) => {
+                    log::warn!("Failed to replay events from {}: {e}", log_path.display());
+                    continue;
+                }
+            };
+            summaries.push(summarize(&exec_state, Some(&events), &dir_path));
         }
-        let events = match read_events(&log_path) {
-            Ok(events) => events,
-            Err(e) => {
-                log::warn!("Failed to read events from {}: {e}", log_path.display());
-                continue;
-            }
-        };
-        let exec_state = match ExecutionState::from_events(&events) {
-            Ok(state) => state,
-            Err(e) => {
-                log::warn!("Failed to replay events from {}: {e}", log_path.display());
-                continue;
-            }
-        };
-        summaries.push(summarize(&exec_state, Some(&events), &dir_path));
     }
 
     Ok(summaries)

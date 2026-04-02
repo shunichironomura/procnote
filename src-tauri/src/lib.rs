@@ -10,7 +10,7 @@ use commands::template::{list_templates, load_template};
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run(procedures_dir: Option<PathBuf>, executions_dir: Option<PathBuf>) {
+pub fn run(procedures_dir: Option<PathBuf>) {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -39,16 +39,11 @@ pub fn run(procedures_dir: Option<PathBuf>, executions_dir: Option<PathBuf>) {
                 .expect("failed to resolve resource dir");
 
             let procedures_dir = procedures_dir.unwrap_or_else(|| default_base.join("procedures"));
-            let executions_dir = executions_dir.unwrap_or_else(|| default_base.join(".executions"));
 
-            // Ensure directories exist.
+            // Ensure directory exists.
             let _ = std::fs::create_dir_all(&procedures_dir);
-            let _ = std::fs::create_dir_all(&executions_dir);
 
-            app.manage(AppState {
-                procedures_dir,
-                executions_dir,
-            });
+            app.manage(AppState { procedures_dir });
 
             Ok(())
         })
