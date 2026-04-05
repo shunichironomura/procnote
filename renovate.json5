@@ -1,42 +1,25 @@
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
-  extends: [
-    "config:recommended",
-  ],
+  extends: ["config:best-practices"],
+  minimumReleaseAge: "7 days",
   lockFileMaintenance: {
     enabled: true,
   },
-  labels: [
-    "dependencies",
-  ],
+  labels: ["dependencies"],
   packageRules: [
     {
-      matchCategories: [
-        "ci",
-      ],
-      addLabels: [
-        "ci",
-      ],
+      matchCategories: ["ci"],
+      addLabels: ["ci"],
     },
     {
-      matchManagers: [
-        "npm",
-      ],
-      matchDepTypes: [
-        "devDependencies",
-      ],
-      addLabels: [
-        "dev dependencies",
-      ],
+      matchManagers: ["npm"],
+      matchDepTypes: ["devDependencies"],
+      addLabels: ["dev dependencies"],
       automerge: true,
     },
     {
-      matchManagers: [
-        "cargo",
-      ],
-      addLabels: [
-        "rust",
-      ],
+      matchManagers: ["cargo"],
+      addLabels: ["rust"],
     },
   ],
 }
