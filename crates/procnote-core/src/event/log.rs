@@ -174,7 +174,7 @@ mod tests {
         ]
     }
 
-    /// Write a LogMeta line followed by events to a file, then read them back.
+    /// Write a `LogMeta` line followed by events to a file.
     fn write_log_with_meta(path: &std::path::Path, events: &[Event]) {
         append_event(path, &log_meta()).unwrap();
         for event in events {
