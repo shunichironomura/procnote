@@ -1,7 +1,7 @@
 mod commands;
 mod state;
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use tauri::Manager;
 
@@ -10,7 +10,15 @@ use commands::template::{list_templates, load_template};
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run(procedures_dir: Option<PathBuf>) {
+pub fn run(workspace: &Path) {
+    // Canonicalize early so relative paths like "." resolve correctly.
+    let procedures_dir = workspace.canonicalize().unwrap_or_else(|_| {
+        panic!(
+            "workspace directory does not exist: {}",
+            workspace.display()
+        )
+    });
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -31,17 +39,6 @@ pub fn run(procedures_dir: Option<PathBuf>) {
                         .build(),
                 )?;
             }
-
-            // Use CLI-provided paths, or fall back to the app's resource directory.
-            let default_base = app
-                .path()
-                .resource_dir()
-                .expect("failed to resolve resource dir");
-
-            let procedures_dir = procedures_dir.unwrap_or_else(|| default_base.join("procedures"));
-
-            // Ensure directory exists.
-            let _ = std::fs::create_dir_all(&procedures_dir);
 
             app.manage(AppState { procedures_dir });
 
