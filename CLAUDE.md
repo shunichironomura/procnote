@@ -51,6 +51,19 @@ procedures/
 │               └── {sha256_7}-{filename}
 ```
 
+### Event log schema evolution rules
+
+The `events.jsonl` format must remain backward-compatible within a major version. See `EVENT_LOG_COMPAT.md` for the full design.
+
+- **Never rename or remove fields** on existing events.
+- **Never change field types.**
+- **Never rename event `"type"` values.**
+- **All new fields must be `Option<T>` + `#[serde(default)]`.**
+- Adding a new event variant or new optional field bumps the **minor** version.
+- Violating any rule above requires a **major** version bump.
+- Forward compatibility is not supported — older app versions reject logs from newer versions.
+- Log files are **never modified** after creation; the code adapts, not the data.
+
 ## Development
 
 - `just dev` — runs the Tauri dev server (passes `--procedures-dir` explicitly).

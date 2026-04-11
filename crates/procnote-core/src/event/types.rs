@@ -143,30 +143,6 @@ pub enum Event {
     },
 }
 
-/// A single entry in the event log.
-///
-/// May be a known [`Event`], or an unknown JSON object from a newer version
-/// of procnote that this version doesn't understand.
-#[derive(Debug, Clone, PartialEq)]
-pub enum LogEntry {
-    /// A recognized event type.
-    Event(Event),
-    /// A valid JSON object whose `"type"` value is not recognized by this
-    /// version. Preserved verbatim so that unknown events are never lost.
-    Unknown(serde_json::Value),
-}
-
-impl LogEntry {
-    /// Returns a reference to the inner [`Event`] if this is a known entry.
-    #[must_use]
-    pub const fn as_event(&self) -> Option<&Event> {
-        match self {
-            Self::Event(e) => Some(e),
-            Self::Unknown(_) => None,
-        }
-    }
-}
-
 /// Whether an event can be reverted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Revertibility {
