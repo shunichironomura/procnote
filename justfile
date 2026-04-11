@@ -6,7 +6,7 @@ default:
 
 # Start Tauri development server (uses project-root procedures/ by default)
 dev *args='':
-    pnpm tauri dev -- -- --procedures-dir {{ justfile_directory() }}/procedures {{ args }}
+    pnpm tauri dev -- -- {{ justfile_directory() }}/procedures {{ args }}
 
 # Start frontend-only dev server
 dev-frontend:

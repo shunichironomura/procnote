@@ -66,7 +66,7 @@ The `events.jsonl` format must remain backward-compatible within a major version
 
 ## Development
 
-- `just dev` — runs the Tauri dev server (passes `--procedures-dir` explicitly).
+- `just dev` — runs the Tauri dev server (passes the workspace directory explicitly).
 - `cargo test --workspace` — runs all Rust tests (46+ tests across core).
 - `npx svelte-check` — TypeScript type checking for frontend.
 - `biome` — frontend linting/formatting.

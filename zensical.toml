@@ -1,0 +1,53 @@
+[project]
+site_name = "Procnote Documentation"
+site_description = "Documentation for Procnote, an event-sourced desktop app for executing and auditing step-by-step procedures."
+site_author = "Shunichiro Nomura"
+# site_url = "https://shunichironomura.github.io/procnote/"
+repo_name = "shunichironomura/procnote"
+repo_url = "https://github.com/shunichironomura/procnote"
+nav = [
+  { "Home" = "index.md" },
+  { "Guide" = [
+    { "Overview" = "guide/index.md" },
+    { "Writing a Template" = "guide/writing-a-template.md" },
+    { "Running an Execution" = "guide/running-an-execution.md" },
+  ] },
+  { "Concepts" = [
+    { "Overview" = "concepts/index.md" },
+    { "Templates" = "concepts/templates.md" },
+    { "Executions & Events" = "concepts/executions-and-events.md" },
+    { "Crash Safety & Auditability" = "concepts/crash-safety.md" },
+  ] },
+  { "Development" = "development.md" },
+]
+
+[project.theme]
+language = "en"
+features = [
+  "announce.dismiss",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.code.select",
+  "content.footnote.tooltips",
+  "content.tabs.link",
+  "content.tooltips",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+]
+
+[[project.theme.palette]]
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
