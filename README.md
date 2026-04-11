@@ -1,5 +1,8 @@
 # procnote
 
+> [!WARNING]
+> Procnote is in early development. The CLI interface, template grammar, event log schema, and storage layout are all subject to change without notice.
+
 A procedure execution tool for tracking step-by-step procedures with checkboxes, data inputs, attachments, and notes. Built as an event-sourced Tauri 2 desktop app (Rust backend + Svelte 5 frontend).
 
 Procedures are written as Markdown templates with YAML frontmatter. Each execution replays an append-only event log, ensuring crash safety and full auditability.
