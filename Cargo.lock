@@ -3109,7 +3109,7 @@ dependencies = [
 
 [[package]]
 name = "procnote-core"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "chrono",
  "log",
@@ -3126,7 +3126,7 @@ dependencies = [
 
 [[package]]
 name = "procnote-tauri"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "chrono",
  "clap",
