@@ -53,7 +53,7 @@ procedures/
 
 ### Event log schema evolution rules
 
-The `events.jsonl` format must remain backward-compatible within a major version. See `.local/2026-04-02_event-log-future-compatibility.md` for the full design.
+The `events.jsonl` format must remain backward-compatible within a major version. See `EVENT_LOG_COMPAT.md` for the full design.
 
 - **Never rename or remove fields** on existing events.
 - **Never change field types.**
