@@ -1,4 +1,4 @@
-//! Snapshot fixture tests for backward/forward compatibility of the event log format.
+//! Snapshot fixture tests for backward compatibility of the event log format.
 //!
 //! These tests deserialize committed JSONL fixture files and assert the resulting
 //! `ExecutionState` matches expectations. If a field is renamed, a type changes,
@@ -9,7 +9,6 @@
 use std::path::Path;
 
 use procnote_core::event::read_log;
-use procnote_core::event::types::LogEntry;
 use procnote_core::execution::{ExecutionState, ExecutionStatus, StepStatus};
 
 fn fixture_path(name: &str) -> std::path::PathBuf {
@@ -20,8 +19,8 @@ fn fixture_path(name: &str) -> std::path::PathBuf {
 
 #[test]
 fn v1_basic_execution_parses_to_finished_pass() {
-    let entries = read_log(&fixture_path("v1_basic_execution.jsonl")).unwrap();
-    let state = ExecutionState::from_log_entries(&entries).unwrap();
+    let events = read_log(&fixture_path("v1_basic_execution.jsonl")).unwrap();
+    let state = ExecutionState::from_events(&events).unwrap();
 
     assert!(matches!(
         state.status,
@@ -37,8 +36,8 @@ fn v1_basic_execution_parses_to_finished_pass() {
 
 #[test]
 fn v1_with_reverts_applies_revert_correctly() {
-    let entries = read_log(&fixture_path("v1_with_reverts.jsonl")).unwrap();
-    let state = ExecutionState::from_log_entries(&entries).unwrap();
+    let events = read_log(&fixture_path("v1_with_reverts.jsonl")).unwrap();
+    let state = ExecutionState::from_events(&events).unwrap();
 
     assert!(matches!(
         state.status,
@@ -50,8 +49,8 @@ fn v1_with_reverts_applies_revert_correctly() {
 
 #[test]
 fn v1_all_event_types_parses_successfully() {
-    let entries = read_log(&fixture_path("v1_all_event_types.jsonl")).unwrap();
-    let state = ExecutionState::from_log_entries(&entries).unwrap();
+    let events = read_log(&fixture_path("v1_all_event_types.jsonl")).unwrap();
+    let state = ExecutionState::from_events(&events).unwrap();
 
     assert!(matches!(
         state.status,
@@ -66,37 +65,4 @@ fn v1_all_event_types_parses_successfully() {
     assert_eq!(state.global_notes[0], "Global observation");
     // Step note was recorded
     assert_eq!(state.steps["step-0"].notes.len(), 1);
-}
-
-#[test]
-fn v1_with_unknown_events_skips_unknown_preserves_state() {
-    let entries = read_log(&fixture_path("v1_with_unknown_events.jsonl")).unwrap();
-
-    // Unknown events should be preserved as LogEntry::Unknown.
-    let unknown_count = entries
-        .iter()
-        .filter(|e| matches!(e, LogEntry::Unknown(_)))
-        .count();
-    assert_eq!(unknown_count, 2, "expected 2 unknown events");
-
-    // State should still reconstruct correctly from known events.
-    let state = ExecutionState::from_log_entries(&entries).unwrap();
-    assert!(matches!(
-        state.status,
-        ExecutionStatus::Finished(procnote_core::event::types::CompletionStatus::Pass)
-    ));
-    assert_eq!(state.step_order.len(), 1);
-}
-
-#[test]
-fn v1_unknown_events_maintain_correct_indices() {
-    let entries = read_log(&fixture_path("v1_with_unknown_events.jsonl")).unwrap();
-
-    // Total entries should include unknowns (they occupy index positions).
-    assert_eq!(entries.len(), 8);
-
-    // The unknown event at index 3 should be preserved.
-    assert!(matches!(&entries[3], LogEntry::Unknown(v) if v["type"] == "future_event_v2"));
-    // The unknown event at index 6 should be preserved.
-    assert!(matches!(&entries[6], LogEntry::Unknown(v) if v["type"] == "another_future_event"));
 }

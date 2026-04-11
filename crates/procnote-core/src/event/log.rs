@@ -1,7 +1,10 @@
 use std::io::{BufRead, Write};
 use std::path::Path;
 
-use super::types::{Event, LogEntry};
+use super::types::Event;
+
+/// The current supported schema version for event logs.
+pub const SUPPORTED_VERSION: u32 = 1;
 
 /// Errors that can occur during event log operations.
 #[derive(Debug, thiserror::Error)]
@@ -10,6 +13,18 @@ pub enum EventLogError {
     Io(#[from] std::io::Error),
     #[error("JSON serialization error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("event log is missing the required LogMeta first line")]
+    MissingLogMeta,
+    #[error(
+        "unsupported event log version {found} (this version of procnote supports up to version {supported})"
+    )]
+    UnsupportedVersion { found: u32, supported: u32 },
+    #[error(
+        "unknown event type {type_name:?} at line {line} (within a supported schema version, this is a bug)"
+    )]
+    UnknownEventType { type_name: String, line: usize },
+    #[error("corrupt data at line {line} in event log (not valid JSON)")]
+    CorruptLine { line: usize },
 }
 
 /// Append a single event to a JSONL file.
@@ -28,74 +43,78 @@ pub fn append_event(path: &Path, event: &Event) -> Result<(), EventLogError> {
     Ok(())
 }
 
-/// Read all log entries from a JSONL event log.
+/// Read all events from a JSONL event log.
 ///
-/// Distinguishes between:
-/// - **Known events**: lines that deserialize into a typed [`Event`].
-/// - **Unknown events**: lines that are valid JSON but have an unrecognized
-///   `"type"` value. These are preserved as [`LogEntry::Unknown`] so they are
-///   never lost.
-/// - **Corrupt lines**: lines that are not valid JSON (e.g., truncated writes
-///   from a crash). These are skipped with a warning log.
-pub fn read_log(path: &Path) -> Result<Vec<LogEntry>, EventLogError> {
+/// Validates that:
+/// - The first line is a [`Event::LogMeta`] with a supported version.
+/// - All subsequent lines are known event types.
+/// - Invalid JSON is only tolerated at the tail of the file (truncated write
+///   from a crash); mid-file corruption is an error.
+pub fn read_log(path: &Path) -> Result<Vec<Event>, EventLogError> {
     let file = std::fs::File::open(path)?;
     let reader = std::io::BufReader::new(file);
     let lines: Vec<String> = reader.lines().collect::<Result<_, _>>()?;
     let total_lines = lines.len();
-    let mut entries = Vec::new();
+
+    // Find the first non-empty line — it must be LogMeta.
+    let first_content_idx = lines
+        .iter()
+        .position(|line| !line.trim().is_empty())
+        .ok_or(EventLogError::MissingLogMeta)?;
+
+    let first_line = lines[first_content_idx].trim();
+    let first_event: Event =
+        serde_json::from_str(first_line).map_err(|_| EventLogError::MissingLogMeta)?;
+
+    match &first_event {
+        Event::LogMeta { version, .. } => {
+            if *version > SUPPORTED_VERSION {
+                return Err(EventLogError::UnsupportedVersion {
+                    found: *version,
+                    supported: SUPPORTED_VERSION,
+                });
+            }
+        }
+        _ => return Err(EventLogError::MissingLogMeta),
+    }
+
+    let mut events = vec![first_event];
 
     for (line_idx, line) in lines.iter().enumerate() {
+        if line_idx <= first_content_idx {
+            // Already handled (empty lines before LogMeta, and LogMeta itself).
+            if line_idx == first_content_idx {
+                continue;
+            }
+            // Skip empty lines before LogMeta.
+            continue;
+        }
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
-        // Try to deserialize as a known Event.
-        match serde_json::from_str::<Event>(trimmed) {
-            Ok(event) => {
-                entries.push(LogEntry::Event(event));
-            }
-            Err(_) => {
-                // Not a known event — check if it's valid JSON (unknown event type).
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
-                    log::debug!(
-                        "Unknown event type at line {}: {}",
-                        line_idx + 1,
-                        value
-                            .get("type")
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or("<no type>")
-                    );
-                    entries.push(LogEntry::Unknown(value));
-                } else {
-                    // Invalid JSON — corrupt/truncated line.
-                    let preview: String = trimmed.chars().take(100).collect();
-                    if line_idx + 1 == total_lines {
-                        log::warn!("Skipping truncated line at end of event log: {preview}");
-                    } else {
-                        log::warn!(
-                            "Skipping corrupt line {} in event log: {preview}",
-                            line_idx + 1,
-                        );
-                    }
-                }
-            }
+        if let Ok(event) = serde_json::from_str::<Event>(trimmed) {
+            events.push(event);
+        } else if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            // Valid JSON but unknown event type.
+            let type_name = value
+                .get("type")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("<no type>")
+                .to_string();
+            return Err(EventLogError::UnknownEventType {
+                type_name,
+                line: line_idx + 1,
+            });
+        } else if line_idx + 1 == total_lines {
+            // Tolerate truncated write at the tail.
+            let preview: String = trimmed.chars().take(100).collect();
+            log::warn!("Skipping truncated line at end of event log: {preview}");
+        } else {
+            return Err(EventLogError::CorruptLine { line: line_idx + 1 });
         }
     }
-    Ok(entries)
-}
-
-/// Convenience wrapper: read only the known [`Event`]s from a log, discarding
-/// unknown entries. Prefer [`read_log`] when index-correctness matters (e.g.,
-/// for reverts).
-#[deprecated(note = "Use read_log() to preserve unknown events and correct indices")]
-pub fn read_events(path: &Path) -> Result<Vec<Event>, EventLogError> {
-    Ok(read_log(path)?
-        .into_iter()
-        .filter_map(|entry| match entry {
-            LogEntry::Event(e) => Some(e),
-            LogEntry::Unknown(_) => None,
-        })
-        .collect())
+    Ok(events)
 }
 
 #[cfg(test)]
@@ -109,6 +128,14 @@ mod tests {
 
     fn sample_execution_id() -> ExecutionId {
         Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap()
+    }
+
+    fn log_meta() -> Event {
+        Event::LogMeta {
+            at: Utc::now(),
+            version: 1,
+            tool_version: "0.1.0".to_string(),
+        }
     }
 
     fn sample_events() -> Vec<Event> {
@@ -147,6 +174,14 @@ mod tests {
         ]
     }
 
+    /// Write a LogMeta line followed by events to a file, then read them back.
+    fn write_log_with_meta(path: &std::path::Path, events: &[Event]) {
+        append_event(path, &log_meta()).unwrap();
+        for event in events {
+            append_event(path, event).unwrap();
+        }
+    }
+
     #[test]
     fn test_round_trip_single_event() {
         let event = &sample_events()[0];
@@ -161,27 +196,26 @@ mod tests {
         let path = dir.path().join("events.jsonl");
 
         let events = sample_events();
-        for event in &events {
-            append_event(&path, event).unwrap();
-        }
+        write_log_with_meta(&path, &events);
 
-        let entries = read_log(&path).unwrap();
-        assert_eq!(events.len(), entries.len());
-        for (original, entry) in events.iter().zip(entries.iter()) {
-            assert_eq!(&LogEntry::Event(original.clone()), entry);
+        let read_events = read_log(&path).unwrap();
+        // First event is LogMeta, then the sample events.
+        assert_eq!(read_events.len(), events.len() + 1);
+        assert!(matches!(&read_events[0], Event::LogMeta { .. }));
+        for (original, read) in events.iter().zip(read_events[1..].iter()) {
+            assert_eq!(original, read);
         }
     }
 
     #[test]
-    fn test_skip_corrupt_lines() {
+    fn test_tail_truncation_tolerated() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("events.jsonl");
 
-        // Write a valid event, then a corrupt line, then another valid event.
         let events = sample_events();
-        append_event(&path, &events[0]).unwrap();
+        write_log_with_meta(&path, &[events[0].clone()]);
 
-        // Append a corrupt line directly.
+        // Append a corrupt line at the tail (simulating truncated write).
         let mut file = std::fs::OpenOptions::new()
             .append(true)
             .open(&path)
@@ -189,58 +223,44 @@ mod tests {
         writeln!(file, "{{corrupt json line").unwrap();
         drop(file);
 
-        append_event(&path, &events[1]).unwrap();
-
-        let entries = read_log(&path).unwrap();
-        // Corrupt line is skipped — only two known events remain.
-        assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0], LogEntry::Event(events[0].clone()));
-        assert_eq!(entries[1], LogEntry::Event(events[1].clone()));
+        // Tail truncation is tolerated.
+        let result = read_log(&path).unwrap();
+        assert_eq!(result.len(), 2); // LogMeta + 1 event
     }
 
     #[test]
-    fn test_empty_lines_skipped() {
+    fn test_mid_file_corruption_errors() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("events.jsonl");
 
         let events = sample_events();
-        append_event(&path, &events[0]).unwrap();
+        write_log_with_meta(&path, &[events[0].clone()]);
 
-        // Append empty lines.
+        // Append a corrupt line in the middle, then a valid event.
         let mut file = std::fs::OpenOptions::new()
             .append(true)
             .open(&path)
             .unwrap();
-        writeln!(file).unwrap();
-        writeln!(file, "   ").unwrap();
+        writeln!(file, "{{corrupt json line").unwrap();
         drop(file);
-
         append_event(&path, &events[1]).unwrap();
 
-        let entries = read_log(&path).unwrap();
-        assert_eq!(entries.len(), 2);
+        let result = read_log(&path);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("corrupt"),
+            "expected corrupt error, got: {err}"
+        );
     }
 
     #[test]
-    fn test_creates_parent_dirs() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("nested").join("dir").join("events.jsonl");
-
-        let events = sample_events();
-        append_event(&path, &events[0]).unwrap();
-
-        assert!(path.exists());
-        let entries = read_log(&path).unwrap();
-        assert_eq!(entries.len(), 1);
-    }
-
-    #[test]
-    fn test_unknown_event_preserved() {
+    fn test_unknown_event_type_errors() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("events.jsonl");
 
         let events = sample_events();
-        append_event(&path, &events[0]).unwrap();
+        write_log_with_meta(&path, &[events[0].clone()]);
 
         // Append an unknown event type (valid JSON, unrecognized "type").
         let mut file = std::fs::OpenOptions::new()
@@ -254,53 +274,87 @@ mod tests {
         .unwrap();
         drop(file);
 
-        append_event(&path, &events[1]).unwrap();
-
-        let entries = read_log(&path).unwrap();
-        assert_eq!(entries.len(), 3);
-        assert!(matches!(&entries[0], LogEntry::Event(_)));
-        assert!(matches!(&entries[1], LogEntry::Unknown(_)));
-        assert!(matches!(&entries[2], LogEntry::Event(_)));
-
-        // The unknown entry preserves its raw JSON.
-        if let LogEntry::Unknown(raw) = &entries[1] {
-            assert_eq!(raw["type"], "future_event");
-            assert_eq!(raw["data"], "hello");
-        }
+        let result = read_log(&path);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("future_event"),
+            "expected unknown event error, got: {err}"
+        );
     }
 
     #[test]
-    fn test_corrupt_vs_unknown_distinction() {
+    fn test_missing_log_meta_errors() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("events.jsonl");
 
+        // Write events without LogMeta first line.
+        let events = sample_events();
+        append_event(&path, &events[0]).unwrap();
+
+        let result = read_log(&path);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("LogMeta"),
+            "expected missing LogMeta error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_unsupported_version_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+
+        // Write LogMeta with version 99.
+        let meta = Event::LogMeta {
+            at: Utc::now(),
+            version: 99,
+            tool_version: "99.0.0".to_string(),
+        };
+        append_event(&path, &meta).unwrap();
+
+        let result = read_log(&path);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("unsupported"),
+            "expected unsupported version error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_empty_lines_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+
+        let events = sample_events();
+        write_log_with_meta(&path, &[events[0].clone()]);
+
+        // Append empty lines.
         let mut file = std::fs::OpenOptions::new()
-            .create(true)
             .append(true)
             .open(&path)
             .unwrap();
-        // Valid known event
-        let event = &sample_events()[0];
-        let json = serde_json::to_string(event).unwrap();
-        writeln!(file, "{json}").unwrap();
-        // Valid JSON but unknown type → should be Unknown
-        writeln!(
-            file,
-            r#"{{"type":"brand_new","at":"2025-01-01T00:00:00Z"}}"#
-        )
-        .unwrap();
-        // Invalid JSON → should be skipped (corrupt)
-        writeln!(file, "{{not valid json").unwrap();
-        // Valid JSON but no type field → should be Unknown
-        writeln!(file, r#"{{"foo":"bar"}}"#).unwrap();
+        writeln!(file).unwrap();
+        writeln!(file, "   ").unwrap();
         drop(file);
 
-        let entries = read_log(&path).unwrap();
-        // Known event + 2 unknown entries (corrupt line skipped)
-        assert_eq!(entries.len(), 3);
-        assert!(matches!(&entries[0], LogEntry::Event(_)));
-        assert!(matches!(&entries[1], LogEntry::Unknown(_)));
-        assert!(matches!(&entries[2], LogEntry::Unknown(_)));
+        append_event(&path, &events[1]).unwrap();
+
+        let result = read_log(&path).unwrap();
+        assert_eq!(result.len(), 3); // LogMeta + 2 events
+    }
+
+    #[test]
+    fn test_creates_parent_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("dir").join("events.jsonl");
+
+        let events = sample_events();
+        append_event(&path, &events[0]).unwrap();
+
+        assert!(path.exists());
     }
 
     #[test]
