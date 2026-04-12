@@ -10,6 +10,10 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[[bin]]
+name = "procnote"
+path = "src/main.rs"
+
 [lib]
 crate-type = ["cdylib", "rlib", "staticlib"]
 name = "procnote_tauri_lib"
