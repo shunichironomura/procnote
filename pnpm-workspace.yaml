@@ -1,0 +1,19 @@
+ignoredBuiltDependencies:
+  - esbuild
+minimumReleaseAgeExclude:
+  - vite-plus
+  - "@voidzero-dev/*"
+  - oxlint
+  - "@oxlint/*"
+  - oxfmt
+  - "@oxfmt/*"
+catalog:
+  vite: npm:@voidzero-dev/vite-plus-core@latest
+  vite-plus: latest
+overrides:
+  vite: "catalog:"
+peerDependencyRules:
+  allowAny:
+    - vite
+  allowedVersions:
+    vite: "*"

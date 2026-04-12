@@ -15,8 +15,8 @@
     "prepare": "svelte-kit sync || echo ''",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "biome:check": "biome check",
-    "biome:fix": "biome check --fix"
+    "vp:check": "vp check",
+    "vp:fix": "vp check --fix"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
@@ -29,7 +29,6 @@
     "marked-highlight": "^2.2.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.10",
     "@sveltejs/adapter-static": "3.0.10",
     "@sveltejs/kit": "2.57.0",
     "@sveltejs/vite-plugin-svelte": "7.0.0",
@@ -37,12 +36,8 @@
     "svelte": "5.55.2",
     "svelte-check": "4.4.6",
     "typescript": "6.0.2",
-    "vite": "8.0.8"
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
   },
-  "packageManager": "pnpm@10.33.0",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
-  }
+  "packageManager": "pnpm@10.33.0"
 }

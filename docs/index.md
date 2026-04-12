@@ -16,7 +16,7 @@ Procnote is an **event-sourced desktop app** for executing and auditing step-by-
 
 A procedure template is a Markdown file with YAML frontmatter:
 
-```markdown
+````markdown
 ---
 id: INSP-001
 title: "Visual Inspection - PCB Assembly"
@@ -36,6 +36,7 @@ version: "1.0"
 ## Record results
 
 ​```inputs
+
 - id: result
   type: selection
   label: "Inspection result"
@@ -43,8 +44,8 @@ version: "1.0"
 - id: notes
   type: text
   label: "Inspector notes"
-​```
-```
+  ​```
+````
 
 Launch Procnote with a workspace directory, just like `code <path>` for VS Code:
 
@@ -60,26 +61,26 @@ Procnote discovers all `template.md` files in the workspace, guides the operator
 
 - :material-school:{ .lg .middle } **Guide**
 
-    ---
+  ***
 
-    Learn how to write templates and run executions.
+  Learn how to write templates and run executions.
 
-    [:octicons-arrow-right-24: Start the guide](guide/index.md)
+  [:octicons-arrow-right-24: Start the guide](guide/index.md)
 
 - :material-book-open-variant:{ .lg .middle } **Concepts**
 
-    ---
+  ***
 
-    Understand templates, event sourcing, and crash safety.
+  Understand templates, event sourcing, and crash safety.
 
-    [:octicons-arrow-right-24: Key concepts](concepts/index.md)
+  [:octicons-arrow-right-24: Key concepts](concepts/index.md)
 
 - :material-code-braces:{ .lg .middle } **Development**
 
-    ---
+  ***
 
-    Set up the development environment and contribute.
+  Set up the development environment and contribute.
 
-    [:octicons-arrow-right-24: Development](development.md)
+  [:octicons-arrow-right-24: Development](development.md)
 
 </div>

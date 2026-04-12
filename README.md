@@ -18,11 +18,11 @@ A procedure template is a Markdown file with YAML frontmatter followed by steps 
 id: TVT-001
 title: "Thermal Vacuum Test - Reaction Wheel Unit"
 version: "1.0"
-author: "Nomura"                        # optional
-equipment:                              # optional
+author: "Nomura" # optional
+equipment: # optional
   - id: CHAMBER-A
     name: "Thermal Vacuum Chamber A"
-requirement_traces:                     # optional
+requirement_traces: # optional
   - REQ-RWU-TEMP-001
 ---
 ```
@@ -49,14 +49,16 @@ Use Markdown task list syntax for interactive checkboxes:
 - [x] Pre-checked item
 ```
 
-**Constraint:** A list must contain *only* checkbox items to be recognized as interactive checkboxes. If a list mixes regular bullet items with checkbox items, the entire list is treated as prose (rendered as Markdown text, not interactive checkboxes).
+**Constraint:** A list must contain _only_ checkbox items to be recognized as interactive checkboxes. If a list mixes regular bullet items with checkbox items, the entire list is treated as prose (rendered as Markdown text, not interactive checkboxes).
 
 ```markdown
 <!-- All checkboxes - rendered as interactive checkboxes -->
+
 - [ ] First check
 - [ ] Second check
 
 <!-- Mixed list - rendered as prose, NOT interactive checkboxes -->
+
 - A regular bullet point
 - [ ] A checkbox item
 ```
@@ -65,8 +67,8 @@ Use Markdown task list syntax for interactive checkboxes:
 
 Define data-entry fields using a fenced code block with the `inputs` language tag. The block body is YAML:
 
-```markdown
-```inputs
+`````markdown
+````inputs
 - id: current-draw
   label: "Measure current draw"
   type: measurement
@@ -83,16 +85,19 @@ Define data-entry fields using a fenced code block with the `inputs` language ta
   label: "Attach log file"
   type: attachment
 ```​
-```
+````
+`````
+
+`````
 
 Input types:
 
-| Type | Description |
-| ---- | ----------- |
-| `measurement` | Numeric value with optional `unit` and `expected` range |
-| `text` | Free-form text |
-| `selection` | Dropdown from `options` list, with optional `expected` value |
-| `attachment` | File upload (stored with SHA-256 hash) |
+| Type          | Description                                                  |
+| ------------- | ------------------------------------------------------------ |
+| `measurement` | Numeric value with optional `unit` and `expected` range      |
+| `text`        | Free-form text                                               |
+| `selection`   | Dropdown from `options` list, with optional `expected` value |
+| `attachment`  | File upload (stored with SHA-256 hash)                       |
 
 ### Prose
 
@@ -100,7 +105,7 @@ Any other Markdown content (paragraphs, bullet lists, sub-headings, code blocks,
 
 ### Full Example
 
-```markdown
+````markdown
 ---
 id: TVT-001
 title: "Thermal Vacuum Test"
@@ -118,7 +123,7 @@ Connect PSU to DUT J1 connector. Set voltage to 5.0V. Enable output.
 
 - [ ] Confirm voltage stable
 
-```inputs
+````inputs
 - id: current-draw
   label: "Measure current draw"
   type: measurement
@@ -132,7 +137,9 @@ Connect PSU to DUT J1 connector. Set voltage to 5.0V. Enable output.
 
 - [ ] DUT powered off
 - [ ] Chamber returned to ambient
-```
+`````
+
+````
 
 ## Installation
 
@@ -193,3 +200,4 @@ Three layers with strict dependency direction:
 3. **`src/`** -- SvelteKit + Svelte 5 frontend.
 
 Executions are stored as append-only JSONL event logs under `.executions/`.
+````

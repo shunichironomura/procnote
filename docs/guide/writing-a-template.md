@@ -30,14 +30,14 @@ requirement_traces:
 ---
 ```
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `id` | Yes | Unique procedure identifier |
-| `title` | Yes | Human-readable procedure name |
-| `version` | Yes | Procedure version string |
-| `author` | No | Procedure author |
-| `equipment` | No | List of equipment with `id` and `name` |
-| `requirement_traces` | No | List of requirement IDs this procedure traces to |
+| Field                | Required | Description                                      |
+| -------------------- | -------- | ------------------------------------------------ |
+| `id`                 | Yes      | Unique procedure identifier                      |
+| `title`              | Yes      | Human-readable procedure name                    |
+| `version`            | Yes      | Procedure version string                         |
+| `author`             | No       | Procedure author                                 |
+| `equipment`          | No       | List of equipment with `id` and `name`           |
+| `requirement_traces` | No       | List of requirement IDs this procedure traces to |
 
 ## Steps
 
@@ -70,9 +70,9 @@ Connect PSU to DUT J1 connector. Set voltage to 5.0V.
 
 Additional context with a code example:
 
-​```python
+​`python
 print("example")
-​```
+​`
 ```
 
 ### Checkboxes
@@ -88,7 +88,7 @@ Task lists create interactive checkboxes that the operator toggles during execut
 ```
 
 !!! warning "Pure checkbox lists only"
-    A list must contain **only** checkbox items (`- [ ]` or `- [x]`) to be recognized as interactive. Mixed lists (regular bullets alongside checkboxes) render as prose.
+A list must contain **only** checkbox items (`- [ ]` or `- [x]`) to be recognized as interactive. Mixed lists (regular bullets alongside checkboxes) render as prose.
 
 ### Input Blocks
 
@@ -148,7 +148,7 @@ Fenced code blocks with the `inputs` language tag define data-entry fields:
 
 ## Complete Example
 
-```markdown
+````markdown
 ---
 id: TVT-001
 title: "Thermal Vacuum Test - Reaction Wheel Unit"
@@ -172,20 +172,22 @@ Connect PSU to DUT J1 connector. Set voltage to 5.0V. Enable output.
 - [ ] PSU output enabled
 
 ​```inputs
+
 - id: current-draw
   label: "Measure current draw"
   type: measurement
   unit: "mA"
   expected:
-    min: 100
-    max: 150
-​```
+  min: 100
+  max: 150
+  ​```
 
 ## Step 2: Functional Check
 
 Execute self-test command via EGSE.
 
 ​```inputs
+
 - id: selftest-result
   label: "Self-test response"
   type: selection
@@ -194,10 +196,10 @@ Execute self-test command via EGSE.
 - id: selftest-log
   label: "Attach self-test log file"
   type: attachment
-​```
+  ​```
 
 ## Postconditions
 
 - [ ] DUT powered off
 - [ ] Chamber returned to ambient
-```
+````

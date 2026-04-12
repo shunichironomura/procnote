@@ -29,37 +29,37 @@ Each event carries:
 
 ### Lifecycle Events
 
-| Event | Description |
-|-------|-------------|
-| `ExecutionStarted` | Marks execution start; captures procedure ID, title, version |
-| `ExecutionCompleted` | Execution finished with pass or fail status |
-| `ExecutionAborted` | Execution stopped early with a reason |
+| Event                | Description                                                  |
+| -------------------- | ------------------------------------------------------------ |
+| `ExecutionStarted`   | Marks execution start; captures procedure ID, title, version |
+| `ExecutionCompleted` | Execution finished with pass or fail status                  |
+| `ExecutionAborted`   | Execution stopped early with a reason                        |
 
 ### Step Events
 
-| Event | Description |
-|-------|-------------|
-| `StepAdded` | A new step was added (from template or dynamically) |
-| `StepStarted` | Operator began working on a step |
-| `StepCompleted` | Step finished successfully |
-| `StepSkipped` | Step skipped with a reason |
+| Event           | Description                                         |
+| --------------- | --------------------------------------------------- |
+| `StepAdded`     | A new step was added (from template or dynamically) |
+| `StepStarted`   | Operator began working on a step                    |
+| `StepCompleted` | Step finished successfully                          |
+| `StepSkipped`   | Step skipped with a reason                          |
 
 ### Data Capture Events
 
-| Event | Description |
-|-------|-------------|
-| `CheckboxToggled` | Checkbox checked or unchecked |
-| `InputRecorded` | Measurement, text, or selection value recorded |
-| `AttachmentAdded` | File attached (stored with SHA-256 hash) |
-| `NoteAdded` | Note added to a step or to the execution |
+| Event             | Description                                    |
+| ----------------- | ---------------------------------------------- |
+| `CheckboxToggled` | Checkbox checked or unchecked                  |
+| `InputRecorded`   | Measurement, text, or selection value recorded |
+| `AttachmentAdded` | File attached (stored with SHA-256 hash)       |
+| `NoteAdded`       | Note added to a step or to the execution       |
 
 ### Metadata & Audit Events
 
-| Event | Description |
-|-------|-------------|
-| `LogMeta` | First event; records schema version and tool version |
-| `ExecutionRenamed` | Execution given a human-readable name |
-| `EventReverted` | Marks a previous event as reverted |
+| Event              | Description                                          |
+| ------------------ | ---------------------------------------------------- |
+| `LogMeta`          | First event; records schema version and tool version |
+| `ExecutionRenamed` | Execution given a human-readable name                |
+| `EventReverted`    | Marks a previous event as reverted                   |
 
 ## Step State Machine
 
@@ -84,24 +84,24 @@ stateDiagram-v2
 
 **Forward transitions** (triggered by operator actions):
 
-| From | Event | To |
-|------|-------|----|
-| Pending | `StepStarted` | Active |
-| Pending | `StepSkipped` | Skipped |
-| Active | `StepCompleted` | Completed |
-| Active | `StepSkipped` | Skipped |
+| From    | Event           | To        |
+| ------- | --------------- | --------- |
+| Pending | `StepStarted`   | Active    |
+| Pending | `StepSkipped`   | Skipped   |
+| Active  | `StepCompleted` | Completed |
+| Active  | `StepSkipped`   | Skipped   |
 
 **Revert transitions** (triggered by reverting a previous event):
 
-| From | Reverted Event | To |
-|------|----------------|----|
-| Active | `StepStarted` | Pending |
-| Completed | `StepCompleted` | Active |
-| Skipped | `StepSkipped` | Pending (if step was never started) |
-| Skipped | `StepSkipped` | Active (if step was started before being skipped) |
+| From      | Reverted Event  | To                                                |
+| --------- | --------------- | ------------------------------------------------- |
+| Active    | `StepStarted`   | Pending                                           |
+| Completed | `StepCompleted` | Active                                            |
+| Skipped   | `StepSkipped`   | Pending (if step was never started)               |
+| Skipped   | `StepSkipped`   | Active (if step was started before being skipped) |
 
 !!! info "Revert validation"
-    Not every revert is allowed. For example, reverting a `StepStarted` event is rejected if a subsequent `StepCompleted` event depends on it. Procnote performs a **trial replay** to verify that the resulting state is valid before committing the revert.
+Not every revert is allowed. For example, reverting a `StepStarted` event is rejected if a subsequent `StepCompleted` event depends on it. Procnote performs a **trial replay** to verify that the resulting state is valid before committing the revert.
 
 ## State Reconstruction
 
@@ -116,11 +116,11 @@ This means the app can crash at any point and recover perfectly by re-reading th
 
 Events are classified into three categories by revertibility:
 
-| Category | Events | Can revert? |
-|----------|--------|-------------|
-| **Revertible** | Checkboxes, inputs, notes, step completion/skip, execution completion/abort, rename | Yes |
-| **Not revertible** | ExecutionStarted, StepAdded, LogMeta | No |
-| **Revert marker** | EventReverted (cannot itself be reverted) | No |
+| Category           | Events                                                                              | Can revert? |
+| ------------------ | ----------------------------------------------------------------------------------- | ----------- |
+| **Revertible**     | Checkboxes, inputs, notes, step completion/skip, execution completion/abort, rename | Yes         |
+| **Not revertible** | ExecutionStarted, StepAdded, LogMeta                                                | No          |
+| **Revert marker**  | EventReverted (cannot itself be reverted)                                           | No          |
 
 When an event is reverted:
 
