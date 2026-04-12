@@ -2,7 +2,7 @@
 site_name = "Procnote Documentation"
 site_description = "Documentation for Procnote, an event-sourced desktop app for executing and auditing step-by-step procedures."
 site_author = "Shunichiro Nomura"
-# site_url = "https://shunichironomura.github.io/procnote/"
+site_url = "https://shunichironomura.github.io/procnote/"
 repo_name = "shunichironomura/procnote"
 repo_url = "https://github.com/shunichironomura/procnote"
 nav = [
