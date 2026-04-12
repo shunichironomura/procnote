@@ -134,6 +134,35 @@ Connect PSU to DUT J1 connector. Set voltage to 5.0V. Enable output.
 - [ ] Chamber returned to ambient
 ```
 
+## Installation
+
+### macOS (Homebrew)
+
+```sh
+brew install --cask shunichironomura/tap/procnote
+```
+
+This installs the app to `/Applications/` and creates a `procnote` CLI command in your PATH.
+
+> [!NOTE]
+> The macOS builds are not currently code-signed or notarized. After installing, you need to remove the quarantine attribute:
+>
+> ```sh
+> xattr -cr /Applications/procnote.app
+> ```
+>
+> Without this, macOS will show a "damaged and can't be opened" error.
+
+### Windows / Linux
+
+> [!NOTE]
+> Windows and Linux distribution is not well organized yet. Download installers manually from the [Releases page](https://github.com/shunichironomura/procnote/releases).
+>
+> Available artifacts:
+>
+> - **Windows:** `.msi` and `.exe` installers
+> - **Linux:** `.deb` package and `.AppImage`
+
 ## Development
 
 Requires [Rust](https://rustup.rs/), [Node.js](https://nodejs.org/), [pnpm](https://pnpm.io/), and [just](https://github.com/casey/just).
