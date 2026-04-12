@@ -13,6 +13,7 @@ categories.workspace = true
 [[bin]]
 name = "procnote"
 path = "src/main.rs"
+doc = false
 
 [dependencies]
 clap.workspace = true
