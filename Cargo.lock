@@ -3108,6 +3108,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "procnote-cli"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "procnote-tauri",
+]
+
+[[package]]
 name = "procnote-core"
 version = "0.0.0"
 dependencies = [
