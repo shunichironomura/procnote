@@ -58,6 +58,7 @@ generate-types:
 # Check that generated TypeScript types are up-to-date
 check-types:
     cargo test --workspace export_bindings_
+    pnpm exec vp fmt src/lib/types/generated/
     git diff --exit-code src/lib/types/generated/
 
 # --- Test ---
