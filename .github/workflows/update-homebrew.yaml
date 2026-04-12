@@ -1,0 +1,87 @@
+name: Update Homebrew Cask
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  update-cask:
+    runs-on: macos-latest
+    steps:
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download macOS DMGs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --pattern '*_aarch64.dmg' \
+            --pattern '*_x64.dmg'
+
+      - name: Compute checksums
+        id: sha
+        run: |
+          echo "arm64=$(shasum -a 256 *_aarch64.dmg | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "x64=$(shasum -a 256 *_x64.dmg | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: shunichironomura/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Update cask formula
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA_ARM64: ${{ steps.sha.outputs.arm64 }}
+          SHA_X64: ${{ steps.sha.outputs.x64 }}
+        run: |
+          ruby -e '
+            version = ENV["VERSION"]
+            sha_arm64 = ENV["SHA_ARM64"]
+            sha_x64 = ENV["SHA_X64"]
+
+            formula = <<~RUBY
+              cask "procnote" do
+                version "#{version}"
+
+                on_arm do
+                  sha256 "#{sha_arm64}"
+                  url "https://github.com/shunichironomura/procnote/releases/download/v\#{version}/procnote_\#{version}_aarch64.dmg",
+                      verified: "github.com/shunichironomura/procnote/"
+                end
+                on_intel do
+                  sha256 "#{sha_x64}"
+                  url "https://github.com/shunichironomura/procnote/releases/download/v\#{version}/procnote_\#{version}_x64.dmg",
+                      verified: "github.com/shunichironomura/procnote/"
+                end
+
+                name "procnote"
+                desc "Procedure execution tool"
+                homepage "https://github.com/shunichironomura/procnote"
+
+                app "procnote.app"
+                binary "\#{appdir}/procnote.app/Contents/MacOS/procnote"
+
+                uninstall quit: "com.github.shunichironomura.procnote"
+
+                zap trash: [
+                  "~/Library/Logs/com.github.shunichironomura.procnote",
+                  "~/Library/WebKit/com.github.shunichironomura.procnote",
+                ]
+              end
+            RUBY
+
+            File.write("Casks/procnote.rb", formula)
+          '
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/procnote.rb
+          git commit -m "Update procnote to ${{ steps.version.outputs.version }}"
+          git push
