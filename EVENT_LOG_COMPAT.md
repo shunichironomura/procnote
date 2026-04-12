@@ -39,12 +39,12 @@ Log files are append-only and immutable after creation. We never rewrite or tran
 
 ## Schema Evolution and Semver
 
-| Change                                                   | Semver | Backward compat | Forward compat |
-| -------------------------------------------------------- | ------ | --------------- | -------------- |
-| Bug fix, no schema change                                | Patch  | Preserved       | Preserved      |
-| New event variant                                        | Minor  | Preserved       | Broken         |
-| New optional field on existing event                     | Minor  | Preserved       | Broken         |
-| Rename/remove field, change type, rename `"type"` value  | Major  | Broken          | Broken         |
+| Change                                                  | Semver | Backward compat | Forward compat |
+| ------------------------------------------------------- | ------ | --------------- | -------------- |
+| Bug fix, no schema change                               | Patch  | Preserved       | Preserved      |
+| New event variant                                       | Minor  | Preserved       | Broken         |
+| New optional field on existing event                    | Minor  | Preserved       | Broken         |
+| Rename/remove field, change type, rename `"type"` value | Major  | Broken          | Broken         |
 
 ### Rules within a major version
 
@@ -62,7 +62,7 @@ Violating any of these rules requires a major version bump.
 Every `events.jsonl` starts with:
 
 ```json
-{"type":"log_meta","at":"...","version":1,"tool_version":"0.1.0"}
+{ "type": "log_meta", "at": "...", "version": 1, "tool_version": "0.1.0" }
 ```
 
 - `version`: Schema major version (integer). Incremented only on breaking changes.

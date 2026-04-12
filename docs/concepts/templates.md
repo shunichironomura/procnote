@@ -45,14 +45,14 @@ When listing past executions, Procnote scans each procedure's `.executions/` sub
 
 The YAML frontmatter defines procedure metadata:
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `id` | Yes | Unique identifier (e.g., `TVT-001`) |
-| `title` | Yes | Human-readable name |
-| `version` | Yes | Version string |
-| `author` | No | Procedure author |
-| `equipment` | No | List of equipment (`id` + `name`) |
-| `requirement_traces` | No | Requirement IDs this procedure traces to |
+| Field                | Required | Description                              |
+| -------------------- | -------- | ---------------------------------------- |
+| `id`                 | Yes      | Unique identifier (e.g., `TVT-001`)      |
+| `title`              | Yes      | Human-readable name                      |
+| `version`            | Yes      | Version string                           |
+| `author`             | No       | Procedure author                         |
+| `equipment`          | No       | List of equipment (`id` + `name`)        |
+| `requirement_traces` | No       | Requirement IDs this procedure traces to |
 
 ## Steps
 
@@ -76,12 +76,12 @@ A list must contain **only** checkbox items to be treated as interactive. Mixed 
 
 Fenced code blocks with the `inputs` language tag define data-entry fields. Four input types are supported:
 
-| Type | Purpose | Key fields |
-|------|---------|------------|
-| `measurement` | Numeric value | `unit`, `expected.min`, `expected.max` |
-| `text` | Free-form text | -- |
-| `selection` | Dropdown choice | `options`, `expected` |
-| `attachment` | File upload | -- |
+| Type          | Purpose         | Key fields                             |
+| ------------- | --------------- | -------------------------------------- |
+| `measurement` | Numeric value   | `unit`, `expected.min`, `expected.max` |
+| `text`        | Free-form text  | --                                     |
+| `selection`   | Dropdown choice | `options`, `expected`                  |
+| `attachment`  | File upload     | --                                     |
 
 Every input has an `id` (unique within the step) and a `label`.
 

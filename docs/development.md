@@ -28,11 +28,11 @@ This starts the Tauri dev server with the `procedures/` directory in the project
 
 Procnote is a three-layer application:
 
-| Layer | Location | Purpose |
-|-------|----------|---------|
-| **Core** | `crates/procnote-core/` | Pure Rust domain logic (events, state machine, template parser) |
-| **Tauri shell** | `src-tauri/` | Bridges core to desktop via IPC commands, filesystem I/O |
-| **Frontend** | `src/` | SvelteKit + Svelte 5 UI |
+| Layer           | Location                | Purpose                                                         |
+| --------------- | ----------------------- | --------------------------------------------------------------- |
+| **Core**        | `crates/procnote-core/` | Pure Rust domain logic (events, state machine, template parser) |
+| **Tauri shell** | `src-tauri/`            | Bridges core to desktop via IPC commands, filesystem I/O        |
+| **Frontend**    | `src/`                  | SvelteKit + Svelte 5 UI                                         |
 
 Dependency direction is strictly one-way: Frontend -> Tauri shell -> Core.
 

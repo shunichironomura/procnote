@@ -10,11 +10,11 @@ Once you have a [procedure template](writing-a-template.md), you can execute it 
 
 1. Launch Procnote with a workspace directory:
 
-    ```bash
-    procnote /path/to/my-workspace
-    ```
+   ```bash
+   procnote /path/to/my-workspace
+   ```
 
-    If omitted, Procnote uses the current working directory.
+   If omitted, Procnote uses the current working directory.
 
 2. The home screen lists all procedure templates found in the workspace. Click on a template to view its details.
 3. Click **Start Execution** to begin.
@@ -56,7 +56,7 @@ Procnote supports reverting previous actions. In the event history panel:
 The original event is not deleted. Instead, an `EventReverted` marker is appended to the log, preserving the full audit trail. The execution state is rebuilt by replaying only non-reverted events.
 
 !!! info "Not all events are revertible"
-    Structural events like `ExecutionStarted` and `StepAdded` cannot be reverted. Data capture events (checkboxes, inputs, notes) and completion events can be reverted.
+Structural events like `ExecutionStarted` and `StepAdded` cannot be reverted. Data capture events (checkboxes, inputs, notes) and completion events can be reverted.
 
 ## Reviewing Past Executions
 

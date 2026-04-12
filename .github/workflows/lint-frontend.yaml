@@ -13,8 +13,8 @@ env:
   NODE_VERSION: 22
 
 jobs:
-  biome:
-    name: biome check
+  vp-check:
+    name: vp check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -24,7 +24,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install
-      - run: pnpm run biome:check
+      - run: pnpm run vp:check
 
   svelte-check:
     name: svelte-check
@@ -53,7 +53,7 @@ jobs:
       - run: pnpm run build
 
   collect-lint-frontend:
-    needs: [biome, svelte-check, build]
+    needs: [vp-check, svelte-check, build]
     runs-on: ubuntu-latest
     steps:
       - run: echo "All frontend checks passed!"

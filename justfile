@@ -24,8 +24,8 @@ build-frontend:
 
 # --- Check & Lint ---
 
-# Run all checks (fmt, clippy, biome, svelte-check, type bindings, tests)
-check-all: check-fmt check-clippy check-biome check-frontend check-types test
+# Run all checks (fmt, clippy, vp, svelte-check, type bindings, tests)
+check-all: check-fmt check-clippy check-vp check-frontend check-types test
 
 # Check Rust formatting
 check-fmt:
@@ -35,9 +35,9 @@ check-fmt:
 check-clippy:
     cargo clippy --workspace -- -D warnings
 
-# Run biome check
-check-biome:
-    pnpm run biome:check
+# Run vite-plus check (format + lint)
+check-vp:
+    pnpm run vp:check
 
 # Run svelte-check
 check-frontend:
@@ -58,6 +58,7 @@ generate-types:
 # Check that generated TypeScript types are up-to-date
 check-types:
     cargo test --workspace export_bindings_
+    pnpm exec vp fmt src/lib/types/generated/
     git diff --exit-code src/lib/types/generated/
 
 # --- Test ---

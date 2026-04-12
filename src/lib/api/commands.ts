@@ -1,5 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ExecutionAction, ExecutionSummary, ProcedureTemplate, TemplateSummary } from "$lib/types";
+import type {
+  ExecutionAction,
+  ExecutionSummary,
+  ProcedureTemplate,
+  TemplateSummary,
+} from "$lib/types";
 
 export async function listTemplates(): Promise<TemplateSummary[]> {
   return invoke("list_templates");
@@ -13,7 +18,10 @@ export async function startExecution(templatePath: string): Promise<ExecutionSum
   return invoke("start_execution", { templatePath });
 }
 
-export async function recordAction(executionId: string, action: ExecutionAction): Promise<ExecutionSummary> {
+export async function recordAction(
+  executionId: string,
+  action: ExecutionAction,
+): Promise<ExecutionSummary> {
   return invoke("record_action", { executionId, action });
 }
 
