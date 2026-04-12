@@ -1,0 +1,23 @@
+[package]
+name = "procnote-cli"
+# Version not tracked here; see src-tauri/tauri.conf.json for the release version.
+version = "0.0.0"
+edition = "2024"
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "procnote"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+clap.workspace = true
+procnote-tauri.workspace = true
+
+[lints]
+workspace = true

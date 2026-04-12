@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/procnote-core", "src-tauri"]
+members = ["crates/procnote-cli", "crates/procnote-core", "src-tauri"]
 
 [workspace.package]
 description = "Event-sourced desktop app for tracking step-by-step procedures"
@@ -26,6 +26,7 @@ tauri-plugin-dialog = "2.6.0"
 tauri-plugin-log = "2"
 tauri-plugin-opener = "2.5.3"
 tempfile = "3.24.0"
+procnote-tauri = { path = "src-tauri" }
 thiserror = "2.0.18"
 ts-rs = { version = "12.0.1", features = ["chrono-impl", "uuid-impl"] }
 uuid = { version = "1.20.0", features = ["serde", "v4"] }
