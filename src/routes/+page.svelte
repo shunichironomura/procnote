@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { warn } from '@tauri-apps/plugin-log';
 	import type { TemplateSummary, ExecutionSummary } from '$lib/types';
 	import * as api from '$lib/api/commands';
 	import { executionStore } from '$lib/stores/execution.svelte';
@@ -20,10 +21,16 @@
 			.sort((a, b) => a.title.localeCompare(b.title))
 	);
 
+	// Sort executions by started_at desc (most recent first). Executions without a
+	// started_at fall back to the empty string so they sort last.
+	let sortedExecutions = $derived(
+		[...executions].sort((a, b) => (b.started_at ?? '').localeCompare(a.started_at ?? ''))
+	);
+
 	let filteredExecutions = $derived(
 		selectedProcedure === "all"
-			? executions
-			: executions.filter(e => e.procedure_id === selectedProcedure)
+			? sortedExecutions
+			: sortedExecutions.filter(e => e.procedure_id === selectedProcedure)
 	);
 
 	onMount(async () => {
@@ -38,7 +45,7 @@
 		try {
 			executions = await api.listExecutions();
 		} catch (e) {
-			// Non-critical: executions may not exist yet
+			warn(`[home] listExecutions failed: ${e}`);
 		} finally {
 			loadingExecutions = false;
 		}

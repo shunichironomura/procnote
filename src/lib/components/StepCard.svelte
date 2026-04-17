@@ -39,7 +39,7 @@
 
     import "highlight.js/styles/atom-one-light.css";
 
-    import type { StepSummary, EventHistoryEntry } from "$lib/types";
+    import type { ExecutionAction, StepSummary, EventHistoryEntry } from "$lib/types";
     import { formatTimestamp } from "$lib/utils/format";
     import AttachmentField from "./AttachmentField.svelte";
     import CheckboxItem from "./CheckboxItem.svelte";
@@ -71,7 +71,7 @@
         stepSummary: StepSummary;
         executionActive?: boolean;
         revertibleEvents?: EventHistoryEntry[];
-        onaction: (action: Record<string, unknown>) => void;
+        onaction: (action: ExecutionAction) => void;
     } = $props();
 
     let isActive = $derived(stepSummary.status === "active");
