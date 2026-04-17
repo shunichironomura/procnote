@@ -1,13 +1,34 @@
 mod commands;
 mod state;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use clap::Parser;
 use tauri::Manager;
 
 use commands::execution::{get_execution_state, list_executions, record_action, start_execution};
 use commands::template::{list_templates, load_template};
 use state::AppState;
+
+/// Command-line arguments shared by both binary crates.
+#[derive(Parser, Debug)]
+#[command(
+    version,
+    about = "procnote - Procedure execution tool for hardware testing."
+)]
+pub struct Args {
+    /// Workspace directory containing procedure subdirectories.
+    /// Defaults to the current working directory.
+    #[arg(default_value = ".")]
+    pub workspace: PathBuf,
+}
+
+/// Entry point used by both `procnote-cli` and `procnote-tauri` binaries.
+/// Parses CLI arguments and hands off to [`run`].
+pub fn run_cli() {
+    let args = Args::parse();
+    run(&args.workspace);
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run(workspace: &Path) {
