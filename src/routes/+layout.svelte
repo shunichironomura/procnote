@@ -35,6 +35,35 @@
 		line-height: 1.5;
 	}
 
+	:global(.timestamp) {
+		font-size: 11px;
+		color: #999;
+		white-space: nowrap;
+		flex-shrink: 0;
+	}
+
+	:global(.btn-delete) {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 4px;
+		background: none;
+		color: #b71c1c;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		flex-shrink: 0;
+		opacity: 0.5;
+		transition:
+			opacity 0.15s,
+			background 0.15s;
+	}
+
+	:global(.btn-delete:hover) {
+		opacity: 1;
+		background: #fce4ec;
+	}
+
 	.app {
 		display: flex;
 		flex-direction: column;

@@ -442,12 +442,6 @@
         display: block;
     }
 
-    .timestamp {
-        font-size: 11px;
-        color: #999;
-        white-space: nowrap;
-    }
-
     .step-status-badge {
         font-size: 11px;
         font-weight: 600;
