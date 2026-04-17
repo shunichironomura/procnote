@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -141,6 +143,22 @@ pub enum Event {
         /// Version of the procnote tool that created this log.
         tool_version: String,
     },
+}
+
+/// Collect the indices of events that have been marked as reverted
+/// by an `EventReverted` marker somewhere in the log.
+#[must_use]
+pub fn reverted_event_indices(events: &[Event]) -> HashSet<usize> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::EventReverted {
+                reverted_event_index,
+                ..
+            } => Some(*reverted_event_index),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Whether an event can be reverted.
