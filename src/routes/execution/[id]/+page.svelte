@@ -7,6 +7,7 @@
     import { formatTimestamp } from "$lib/utils/format";
     import StepCard from "$lib/components/StepCard.svelte";
     import AddStepDialog from "$lib/components/AddStepDialog.svelte";
+    import Modal from "$lib/components/Modal.svelte";
     import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
     let showAddStepDialog = $state(false);
@@ -285,72 +286,58 @@
 {/if}
 
 {#if showCompleteDialog}
-    <div
-        class="modal-backdrop"
-        role="presentation"
-        onclick={() => (showCompleteDialog = false)}
-    >
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="modal" onclick={(e) => e.stopPropagation()}>
-            <h3>Complete Execution</h3>
-            <p>Mark this execution as:</p>
-            <div class="modal-actions">
-                <button
-                    class="btn btn-secondary"
-                    onclick={() => (showCompleteDialog = false)}>Cancel</button
-                >
-                <button
-                    class="btn btn-danger"
-                    onclick={() => completeExecution("fail")}>Fail</button
-                >
-                <button
-                    class="btn btn-success"
-                    onclick={() => completeExecution("pass")}>Pass</button
-                >
-            </div>
+    <Modal oncancel={() => (showCompleteDialog = false)}>
+        <h3>Complete Execution</h3>
+        <p>Mark this execution as:</p>
+        <div class="modal-actions">
+            <button
+                class="btn btn-secondary"
+                onclick={() => (showCompleteDialog = false)}>Cancel</button
+            >
+            <button
+                class="btn btn-danger"
+                onclick={() => completeExecution("fail")}>Fail</button
+            >
+            <button
+                class="btn btn-success"
+                onclick={() => completeExecution("pass")}>Pass</button
+            >
         </div>
-    </div>
+    </Modal>
 {/if}
 
 {#if showAbortDialog}
-    <div
-        class="modal-backdrop"
-        role="presentation"
-        onclick={() => {
+    <Modal
+        oncancel={() => {
             showAbortDialog = false;
             abortReason = "";
         }}
     >
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="modal" onclick={(e) => e.stopPropagation()}>
-            <h3>Abort Execution</h3>
-            <p>This will permanently mark the execution as aborted.</p>
-            <label class="field">
-                <span class="field-label">Reason</span>
-                <textarea
-                    bind:value={abortReason}
-                    placeholder="Why is the execution being aborted?"
-                    rows="3"
-                ></textarea>
-            </label>
-            <div class="modal-actions">
-                <button
-                    class="btn btn-secondary"
-                    onclick={() => {
-                        showAbortDialog = false;
-                        abortReason = "";
-                    }}>Cancel</button
-                >
-                <button
-                    class="btn btn-danger"
-                    onclick={abortExecution}
-                    disabled={!abortReason.trim()}>Abort</button
-                >
-            </div>
+        <h3>Abort Execution</h3>
+        <p>This will permanently mark the execution as aborted.</p>
+        <label class="field">
+            <span class="field-label">Reason</span>
+            <textarea
+                bind:value={abortReason}
+                placeholder="Why is the execution being aborted?"
+                rows="3"
+            ></textarea>
+        </label>
+        <div class="modal-actions">
+            <button
+                class="btn btn-secondary"
+                onclick={() => {
+                    showAbortDialog = false;
+                    abortReason = "";
+                }}>Cancel</button
+            >
+            <button
+                class="btn btn-danger"
+                onclick={abortExecution}
+                disabled={!abortReason.trim()}>Abort</button
+            >
         </div>
-    </div>
+    </Modal>
 {/if}
 
 <style>
@@ -604,71 +591,5 @@
 
     .btn-undo:hover {
         background: #f3e5f5;
-    }
-
-    /* Modal */
-    .modal-backdrop {
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.4);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 100;
-    }
-
-    .modal {
-        background: #fff;
-        border-radius: 8px;
-        padding: 24px;
-        min-width: 360px;
-        max-width: 480px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-    }
-
-    .modal h3 {
-        margin: 0 0 8px;
-        font-size: 16px;
-    }
-
-    .modal p {
-        margin: 0 0 16px;
-        font-size: 13px;
-        color: #555;
-    }
-
-    .modal-actions {
-        display: flex;
-        justify-content: flex-end;
-        gap: 8px;
-    }
-
-    .field {
-        display: block;
-        margin-bottom: 16px;
-    }
-
-    .field-label {
-        display: block;
-        font-size: 12px;
-        font-weight: 600;
-        margin-bottom: 4px;
-        color: #555;
-    }
-
-    .field textarea {
-        width: 100%;
-        padding: 8px 10px;
-        border: 1px solid #ccc;
-        border-radius: 4px;
-        font: inherit;
-        font-size: 13px;
-        resize: vertical;
-    }
-
-    .field textarea:focus {
-        outline: none;
-        border-color: #1a1a2e;
-        box-shadow: 0 0 0 2px rgba(26, 26, 46, 0.15);
     }
 </style>

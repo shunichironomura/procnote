@@ -56,11 +56,4 @@
         text-decoration: line-through;
         color: #888;
     }
-
-    .timestamp {
-        font-size: 11px;
-        color: #999;
-        white-space: nowrap;
-        flex-shrink: 0;
-    }
 </style>
