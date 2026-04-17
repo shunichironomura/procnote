@@ -70,8 +70,8 @@
         return map;
     });
 
-    async function handleAction(action: Record<string, unknown>) {
-        await executionStore.act(action as ExecutionAction);
+    async function handleAction(action: ExecutionAction) {
+        await executionStore.act(action);
     }
 
     async function addStep(
