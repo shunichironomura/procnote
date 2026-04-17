@@ -23,8 +23,8 @@ pub enum ExecutionError {
     StepNotStarted(String),
     #[error("step already finished: {0}")]
     StepAlreadyFinished(String),
-    #[error("duplicate step heading: {0}")]
-    DuplicateStepHeading(String),
+    #[error("duplicate step id: {0}")]
+    DuplicateStepId(String),
     #[error("event index out of range: {0}")]
     EventIndexOutOfRange(usize),
     #[error("event at index {0} is not revertible")]
@@ -157,8 +157,10 @@ impl ExecutionState {
                 procedure_version,
                 ..
             } => {
-                if self.status != ExecutionStatus::Pending {
-                    return Err(ExecutionError::AlreadyStarted);
+                match &self.status {
+                    ExecutionStatus::Pending => {}
+                    ExecutionStatus::Active => return Err(ExecutionError::AlreadyStarted),
+                    ExecutionStatus::Finished(_) => return Err(ExecutionError::AlreadyFinished),
                 }
                 self.execution_id = Some(*execution_id);
                 self.procedure_id = Some(procedure_id.clone());
@@ -183,7 +185,7 @@ impl ExecutionState {
             } => {
                 self.require_active()?;
                 if self.steps.contains_key(step_id) {
-                    return Err(ExecutionError::DuplicateStepHeading(heading.clone()));
+                    return Err(ExecutionError::DuplicateStepId(step_id.clone()));
                 }
                 let step_state = StepState {
                     id: step_id.clone(),
@@ -960,7 +962,7 @@ mod tests {
         let result = state.add_step("step-0", "Preconditions Again", vec![], None);
         assert_eq!(
             result.unwrap_err(),
-            ExecutionError::DuplicateStepHeading("Preconditions Again".to_string())
+            ExecutionError::DuplicateStepId("step-0".to_string())
         );
     }
 

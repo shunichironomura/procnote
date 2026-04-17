@@ -391,7 +391,11 @@ impl TryFrom<RawInputDefinition> for InputDefinition {
                 }
             }
             Some(serde_yaml_ng::Value::String(s)) => Some(ExpectedValue::Exact(s)),
-            Some(other) => Some(ExpectedValue::Exact(format!("{other:?}"))),
+            Some(_) => {
+                return Err(ParseError::InvalidInputsBlock(
+                    "`expected` must be a string or a {min, max} mapping".to_string(),
+                ));
+            }
         };
 
         Ok(Self {

@@ -230,8 +230,9 @@ impl Event {
                     .as_ref()
                     .map(|id| format!(" to {id}"))
                     .unwrap_or_default();
-                let truncated = if text.len() > 50 {
-                    format!("{}...", &text[..50])
+                let truncated = if text.chars().count() > 50 {
+                    let head: String = text.chars().take(50).collect();
+                    format!("{head}...")
                 } else {
                     text.clone()
                 };
