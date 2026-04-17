@@ -1,9 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::event::types::{CompletionStatus, Event, ExecutionId, Revertibility};
+use crate::event::types::{
+    CompletionStatus, Event, ExecutionId, Revertibility, reverted_event_indices,
+};
 use crate::template::types::{ProcedureTemplate, StepContent};
 
 /// Errors that can occur during execution state transitions.
@@ -117,19 +119,8 @@ impl ExecutionState {
     /// First collects all reverted indices, then replays only non-reverted
     /// events. `EventReverted` and `LogMeta` events are skipped.
     pub fn from_events(events: &[Event]) -> Result<Self, ExecutionError> {
-        // First pass: collect all reverted event indices.
-        let reverted_indices: HashSet<usize> = events
-            .iter()
-            .filter_map(|event| match event {
-                Event::EventReverted {
-                    reverted_event_index,
-                    ..
-                } => Some(*reverted_event_index),
-                _ => None,
-            })
-            .collect();
+        let reverted_indices = reverted_event_indices(events);
 
-        // Second pass: replay non-reverted, non-marker events.
         let mut state = Self::new();
         for (index, event) in events.iter().enumerate() {
             if reverted_indices.contains(&index) {

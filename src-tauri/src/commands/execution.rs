@@ -7,7 +7,7 @@ use ts_rs::TS;
 
 use crate::state::AppState;
 use procnote_core::event::types::{CompletionStatus, Event, ExecutionId, Revertibility};
-use procnote_core::event::{append_event, read_log};
+use procnote_core::event::{append_event, read_log, reverted_event_indices};
 use procnote_core::execution::{ExecutionState, StepStatus};
 use procnote_core::template::parse_template;
 use procnote_core::template::types::{InputDefinition, StepContent};
@@ -151,26 +151,10 @@ fn step_status_string(status: &StepStatus) -> String {
     clippy::too_many_lines,
     reason = "large match over all event variants to build summary"
 )]
-fn summarize(
-    state: &ExecutionState,
-    events: Option<&[Event]>,
-    execution_dir: &Path,
-) -> ExecutionSummary {
-    use std::collections::{HashMap, HashSet};
+fn summarize(state: &ExecutionState, events: &[Event], execution_dir: &Path) -> ExecutionSummary {
+    use std::collections::HashMap;
 
-    let events_slice = events.unwrap_or(&[]);
-
-    // Collect reverted event indices so we can skip them.
-    let reverted_indices: HashSet<usize> = events_slice
-        .iter()
-        .filter_map(|event| match event {
-            Event::EventReverted {
-                reverted_event_index,
-                ..
-            } => Some(*reverted_event_index),
-            _ => None,
-        })
-        .collect();
+    let reverted_indices = reverted_event_indices(events);
 
     // Build timestamp lookup maps from non-reverted events.
     // Store as RFC3339 strings to avoid depending on chrono in this crate.
@@ -189,7 +173,7 @@ fn summarize(
     let mut note_at: HashMap<(&str, usize), String> = HashMap::new();
     let mut note_counts: HashMap<&str, usize> = HashMap::new();
 
-    for (index, event) in events_slice.iter().enumerate() {
+    for (index, event) in events.iter().enumerate() {
         if reverted_indices.contains(&index) {
             continue;
         }
@@ -299,7 +283,7 @@ fn summarize(
         })
         .collect();
 
-    let event_history = build_event_history(events_slice);
+    let event_history = build_event_history(events, &reverted_indices);
 
     ExecutionSummary {
         execution_id: state.execution_id.unwrap_or_default(),
@@ -316,21 +300,10 @@ fn summarize(
     }
 }
 
-fn build_event_history(events: &[Event]) -> Vec<EventHistoryEntry> {
-    use std::collections::HashSet;
-
-    // Collect reverted indices.
-    let reverted_indices: HashSet<usize> = events
-        .iter()
-        .filter_map(|event| match event {
-            Event::EventReverted {
-                reverted_event_index,
-                ..
-            } => Some(*reverted_event_index),
-            _ => None,
-        })
-        .collect();
-
+fn build_event_history(
+    events: &[Event],
+    reverted_indices: &std::collections::HashSet<usize>,
+) -> Vec<EventHistoryEntry> {
     events
         .iter()
         .enumerate()
@@ -533,7 +506,7 @@ pub fn start_execution(template_path: String) -> Result<ExecutionSummary, String
     // Build full event list for summarize.
     let mut all_events = vec![log_meta];
     all_events.extend(events);
-    Ok(summarize(&exec_state, Some(&all_events), &exec_dir))
+    Ok(summarize(&exec_state, &all_events, &exec_dir))
 }
 
 /// Action payload from the frontend for recording events.
@@ -630,7 +603,7 @@ pub fn record_action(
         // Rebuild state from the full event log.
         let exec_state = ExecutionState::from_events(&events).map_err(|e| e.to_string())?;
 
-        return Ok(summarize(&exec_state, Some(&events), exec_dir));
+        return Ok(summarize(&exec_state, &events, exec_dir));
     }
 
     let event: Event = match action {
@@ -714,7 +687,7 @@ pub fn record_action(
     append_event(&log_path, &event).map_err(|e| e.to_string())?;
     events.push(event);
 
-    Ok(summarize(&exec_state, Some(&events), exec_dir))
+    Ok(summarize(&exec_state, &events, exec_dir))
 }
 
 /// Get the current state of an execution.
@@ -730,7 +703,7 @@ pub fn get_execution_state(
     let (exec_state, events, log_path) =
         load_execution_from_disk(&state.procedures_dir, execution_id)?;
     let exec_dir = log_path.parent().expect("log_path must have a parent");
-    Ok(summarize(&exec_state, Some(&events), exec_dir))
+    Ok(summarize(&exec_state, &events, exec_dir))
 }
 
 /// List all executions by scanning each procedure's `.executions/` subdirectory.
@@ -778,7 +751,7 @@ pub fn list_executions(state: State<'_, AppState>) -> Result<Vec<ExecutionSummar
                     continue;
                 }
             };
-            summaries.push(summarize(&exec_state, Some(&events), &dir_path));
+            summaries.push(summarize(&exec_state, &events, &dir_path));
         }
     }
 

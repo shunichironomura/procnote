@@ -80,15 +80,7 @@ pub fn read_log(path: &Path) -> Result<Vec<Event>, EventLogError> {
 
     let mut events = vec![first_event];
 
-    for (line_idx, line) in lines.iter().enumerate() {
-        if line_idx <= first_content_idx {
-            // Already handled (empty lines before LogMeta, and LogMeta itself).
-            if line_idx == first_content_idx {
-                continue;
-            }
-            // Skip empty lines before LogMeta.
-            continue;
-        }
+    for (line_idx, line) in lines.iter().enumerate().skip(first_content_idx + 1) {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
