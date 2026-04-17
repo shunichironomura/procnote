@@ -16,7 +16,6 @@ path = "src/main.rs"
 doc = false
 
 [dependencies]
-clap.workspace = true
 procnote-tauri.workspace = true
 
 [lints]
