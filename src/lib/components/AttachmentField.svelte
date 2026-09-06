@@ -18,7 +18,6 @@
         | "idle"
         | "creating"
         | "open"
-        | "receiving"
         | "importing"
         | "closed"
         | "expired"
@@ -280,18 +279,19 @@
             remoteStatus = status;
             remoteError = null;
             pollBackoffMs = 1000;
+            if (status.status !== "open") {
+                // Terminal polling may have recovered local receipts into the log.
+                await onimportdrop?.(session.session_id);
+                if (runId !== remoteRunId) return;
+            }
             switch (status.status) {
                 case "open":
                     remotePhase = "open";
-                    schedulePoll(1500);
-                    break;
-                case "receiving":
-                    remotePhase = "receiving";
-                    schedulePoll(1500);
-                    break;
-                case "ready":
-                    stopPolling();
-                    await importRemoteUpload(session.session_id);
+                    if (status.pending_submissions > 0 || status.needs_import) {
+                        await importRemoteUpload(session.session_id);
+                    } else {
+                        schedulePoll(1500);
+                    }
                     break;
                 case "closed":
                     stopPolling();
@@ -322,6 +322,14 @@
                 return;
             }
             stopPolling();
+            if (pollError.kind === "terminal") {
+                try {
+                    await onimportdrop?.(session.session_id);
+                } catch (refreshError) {
+                    pollError.message = String(refreshError);
+                }
+                if (runId !== remoteRunId) return;
+            }
             remotePhase = "failed";
             remoteError = pollError.message;
         } finally {
@@ -339,7 +347,8 @@
         try {
             await onimportdrop(sessionId);
             if (runId !== remoteRunId) return;
-            resetRemoteUpload();
+            remotePhase = "open";
+            schedulePoll(1500);
         } catch (e) {
             if (runId !== remoteRunId) return;
             remotePhase = "failed";
@@ -367,13 +376,16 @@
     async function cancelRemoteUpload() {
         stopPolling();
         const sessionId = remoteSession?.session_id;
+        remoteRunId += 1;
         remotePhase = "canceling";
         try {
             if (sessionId && oncanceldrop) {
                 await oncanceldrop(sessionId);
             }
-        } finally {
             resetRemoteUpload();
+        } catch (e) {
+            remotePhase = "failed";
+            remoteError = `Could not stop receiving. Try again: ${String(e)}`;
         }
     }
 
@@ -409,9 +421,7 @@
             case "creating":
                 return "Creating upload session...";
             case "open":
-                return "Scan with your phone. Waiting for files...";
-            case "receiving":
-                return "Upload in progress...";
+                return "Scan once, then keep sending files from the same page. Waiting for files...";
             case "importing":
                 return "Files received. Importing attachments...";
             case "closed":
@@ -533,18 +543,18 @@
             </p>
         {/if}
         <p>{remoteMessage()}</p>
-        {#if remoteStatus?.encrypted_size}
-            <p>Encrypted size: {remoteStatus.encrypted_size} bytes</p>
+        {#if remoteStatus?.pending_submissions}
+            <p>Pending submissions: {remoteStatus.pending_submissions}</p>
         {/if}
         {#if remoteError}
             <p class="remote-error">{remoteError}</p>
         {/if}
         <div class="modal-actions">
-            {#if remotePhase === "failed" && remoteStatus?.status === "ready"}
-                <button class="btn-record" onclick={retryRemoteImport}>Retry Import</button>
+            {#if remotePhase === "failed" && remoteSession}
+                <button class="btn-record" onclick={retryRemoteImport}>Retry receiving</button>
             {/if}
             <button class="btn-clear" onclick={cancelRemoteUpload} disabled={remotePhase === "canceling"}>
-                {remotePhase === "canceling" ? "Cancelling..." : "Cancel"}
+                {remotePhase === "canceling" ? "Stopping..." : "Stop receiving"}
             </button>
         </div>
     </Modal>

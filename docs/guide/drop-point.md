@@ -10,7 +10,7 @@ Procnote can use [DropPoint](https://github.com/shunichironomura/drop-point) to 
 
 ## What DropPoint Is
 
-DropPoint is a temporary encrypted file handoff relay. Procnote creates a short-lived drop point, shows a QR code, and later imports one encrypted upload as local Procnote attachments.
+DropPoint is a temporary encrypted file handoff relay. Procnote creates a short-lived reusable session, shows a QR code, and imports successive encrypted submissions as local attachments for the same execution, step, and input.
 
 DropPoint is **not** built into Procnote and is **not** a permanent storage service. You need to set up and operate your own DropPoint instance before enabling this integration. The DropPoint relay stores ciphertext only; Procnote decrypts the upload locally and then stores the plaintext files in the execution's attachment directory.
 
@@ -22,6 +22,7 @@ For DropPoint setup and deployment details, see the DropPoint repository:
 
 Follow the DropPoint documentation to deploy a reachable DropPoint server and generate an API token. At minimum, your DropPoint instance needs:
 
+- the reusable-session API with child submission listing, pickup, and acknowledgement (older one-shot servers are not supported);
 - an externally visible `base_url` for sender browsers;
 - an API token configured on the DropPoint server;
 - HTTPS for non-local deployments, so browser encryption APIs are available;
@@ -60,10 +61,14 @@ When DropPoint is configured, attachment inputs show an **Upload via QR Code** b
 2. Ask the sender to scan the QR code with their device.
 3. Confirm that the sender's upload page shows the same human-readable drop name shown in Procnote.
 4. Wait while the sender selects and uploads files.
-5. Procnote authenticates the complete encrypted bundle, installs all files atomically as local attachments, durably records them in the execution log, and only then closes the remote drop point.
+5. Procnote authenticates each complete encrypted bundle, installs its files atomically, durably records them in the execution log, and only then acknowledges that submission so the relay can delete its ciphertext.
+6. Keep the dialog open. The sender can periodically send more files from the same page without scanning another QR code. Pending count and byte limits on the relay bound its queue.
+7. Choose **Stop receiving** when finished, or let the session expire. Stopping closes the parent and discards any remaining remote submissions; already imported attachments remain local.
 
-If pickup, local installation, execution-log recording, or remote close fails, Procnote retains resumable private session state and leaves recoverable remote ciphertext available. Use **Retry** (or reopen the same attachment upload after restarting Procnote) to continue without reinstalling an already verified bundle. A relay-reported `expired`, `failed`, or prematurely `closed` state is terminal.
+If pickup, installation, execution-log recording, acknowledgement, or close fails, Procnote retains resumable private state. Use **Retry receiving** (or reopen the same attachment upload after restarting Procnote) to continue without duplicating attachments. A failed stop remains pending and is retried on resume. Navigating away pauses polling; it does not close the session. Remote ciphertext is recoverable only until acknowledgement, parent close, or expiry.
 
-Recovered files are published together beneath the execution's `attachments/bundle-dp_…/` directory. The directory includes an owner-only `.droppoint-receipt.json` identity receipt used only for crash recovery and conflict detection; the receipt is not shown as an attachment. Procnote never merges into or overwrites a different pre-existing bundle directory.
+Recovered files are published together beneath the execution's `attachments/bundle-dp_…-sub_…/` directory. Each submission has an owner-only `.droppoint-receipt.json` binding its parent, submission ID, and bundle identity for crash recovery and conflict detection. The receipt is not an attachment. Procnote never overwrites a different bundle, and acknowledges only after both files and attachment events are durable.
+
+This unreleased integration uses private-state version 2; legacy one-shot private sessions are not resumed by the new model. Finish old sessions before upgrading. Existing execution event logs and imported attachments are unchanged.
 
 Pickup capabilities and recipient private keys are stored atomically with owner-only access in the operating system's application-local data directory, outside the git-friendly procedure workspace. Procnote removes those secrets from private state only after remote close succeeds or a terminal remote outcome has been durably recorded.

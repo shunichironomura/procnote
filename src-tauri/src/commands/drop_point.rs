@@ -26,7 +26,8 @@ use crate::drop_point::session::{
     NewDropPointSession, SessionPhase,
 };
 use crate::drop_point::storage::{
-    InstalledBundle, encrypted_bundle_identity, install_bundle, verify_installed_bundle,
+    InstalledBundle, discover_installed_bundles, encrypted_bundle_identity, install_bundle,
+    verify_installed_bundle,
 };
 use crate::persistence::execution_store::{ExecutionStore, InstalledAttachmentSource};
 use crate::state::AppState;
@@ -47,12 +48,11 @@ pub struct AttachmentDropPointSessionSummary {
 pub struct AttachmentDropPointStatus {
     pub status: String,
     pub display_name: String,
-    pub encrypted_size: u64,
-    #[ts(optional)]
-    pub dropped_at: Option<String>,
-    #[ts(optional)]
-    pub first_picked_up_at: Option<String>,
+    pub pending_submissions: u64,
+    pub pending_bytes: u64,
     pub expires_at: String,
+    #[ts(optional)]
+    pub needs_import: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -94,6 +94,7 @@ pub async fn start_attachment_drop_point_session(
     step_id: String,
     input_id: String,
 ) -> Result<AttachmentDropPointSessionSummary, String> {
+    let _operation = sessions.lock_operation().await;
     let (execution_state, log_path) =
         load_execution_from_disk(&state.procedures_dir, execution_id)?;
     let execution_dir = log_path
@@ -145,8 +146,20 @@ pub async fn poll_attachment_drop_point_session(
     sessions: State<'_, DropPointSessions>,
     session_id: String,
 ) -> Result<AttachmentDropPointStatus, AttachmentDropPointPollError> {
+    let _operation = sessions.lock_operation().await;
     let session = sessions.get(&session_id)?;
     let client = configured_receiver_client(&state, &session)?;
+    if matches!(session.phase, SessionPhase::ClosePending) {
+        close_session(&client, &sessions, &state.procedures_dir, session.clone()).await?;
+        return Ok(AttachmentDropPointStatus {
+            status: "closed".to_string(),
+            display_name: session.display_name,
+            pending_submissions: 0,
+            pending_bytes: 0,
+            expires_at: session.expires_at.to_rfc3339(),
+            needs_import: Some(true),
+        });
+    }
     if !session.is_resumable() {
         return Err(AttachmentDropPointPollError::Terminal {
             message: "DropPoint session is already terminal".to_string(),
@@ -184,10 +197,10 @@ pub async fn poll_attachment_drop_point_session(
     Ok(AttachmentDropPointStatus {
         status: status.status.as_str().to_string(),
         display_name: status.display_name,
-        encrypted_size: status.encrypted_size,
-        dropped_at: status.dropped_at,
-        first_picked_up_at: status.first_picked_up_at,
+        pending_submissions: status.pending_submissions,
+        pending_bytes: status.pending_bytes,
         expires_at: status.expires_at,
+        needs_import: session.pending_local_imports().then_some(true),
     })
 }
 
@@ -200,62 +213,114 @@ pub async fn import_attachment_drop_point_upload(
     input_id: String,
     session_id: String,
 ) -> Result<super::execution::ExecutionSummary, String> {
-    let session = sessions.get(&session_id)?;
+    let _operation = sessions.lock_operation().await;
+    let mut session = sessions.get(&session_id)?;
     let client = configured_receiver_client(&state, &session)?;
     ensure_session_target(&session, execution_id, &step_id, &input_id)?;
     let current_state = validate_session_execution_dir(&state.procedures_dir, &session)?;
     if matches!(session.phase, SessionPhase::Waiting) {
         validate_attachment_target(&current_state, &step_id, &input_id)?;
     }
-
-    if matches!(session.phase, SessionPhase::Complete { bundle: None, .. }) {
-        return Err("DropPoint session ended before a bundle was installed".to_string());
-    }
-    if matches!(
-        session.phase,
-        SessionPhase::Complete {
-            bundle: Some(_),
-            ..
+    record_pending_submissions(&state.procedures_dir, &sessions, &mut session)?;
+    if session.is_resumable() && matches!(session.phase, SessionPhase::Waiting) {
+        // Retry local acknowledgements even when a previous ACK succeeded remotely
+        // but its response or the following private-state write was lost.
+        let pending = session
+            .submissions
+            .iter()
+            .filter(|(_, child)| !child.acknowledged)
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        for id in pending {
+            acknowledge_submission(&client, &sessions, &mut session, &id).await?;
         }
-    ) {
-        return record_session_bundle(&state.procedures_dir, &session)?.ok_or_else(|| {
-            "completed DropPoint session is missing its installed bundle".to_string()
-        });
-    }
-
-    let session =
-        ensure_bundle_installed(&client, &sessions, &state.procedures_dir, session).await?;
-    finish_installed_import(&client, &sessions, &state.procedures_dir, &session).await
-}
-
-async fn finish_installed_import(
-    client: &DropPointClient,
-    sessions: &DropPointSessions,
-    procedures_dir: &std::path::Path,
-    session: &ActiveDropPointSession,
-) -> Result<super::execution::ExecutionSummary, String> {
-    let summary = record_session_bundle(procedures_dir, session)?
-        .ok_or_else(|| "DropPoint session has no installed bundle".to_string())?;
-    let close_pending = session.with_close_pending()?;
-    sessions.persist(&close_pending)?;
-    match client
-        .close(&close_pending.drop_point_id, close_pending.pickup_token()?)
-        .await
-    {
-        Ok(()) => {
-            sessions
-                .persist(&close_pending.with_complete(CompletionOutcome::ClosedSuccessfully))?;
-            Ok(summary)
-        }
-        Err(error) => {
-            if let Some(terminal) = error.terminal() {
-                finalize_terminal_session(sessions, procedures_dir, &close_pending, terminal)?;
-                Ok(summary)
-            } else {
-                Err(error.to_string())
+        let listed = match client
+            .list_submissions(&session.drop_point_id, session.pickup_token()?)
+            .await
+        {
+            Ok(listed) => listed,
+            Err(error) => {
+                if let Some(terminal) = error.terminal() {
+                    finalize_terminal_session(
+                        &sessions,
+                        &state.procedures_dir,
+                        &session,
+                        terminal,
+                    )?;
+                }
+                return Err(error.to_string());
+            }
+        };
+        let mut first_error = None;
+        for child in listed {
+            if !session.submissions.contains_key(&child.submission_id) {
+                match install_submission(
+                    &client,
+                    &sessions,
+                    &state.procedures_dir,
+                    session.clone(),
+                    &child.submission_id,
+                )
+                .await
+                {
+                    Ok(installed) => session = installed,
+                    Err(error) => {
+                        first_error.get_or_insert(error);
+                        session = sessions.get(&session_id)?;
+                        if !session.is_resumable() {
+                            break;
+                        }
+                        continue;
+                    }
+                }
+            }
+            record_one_submission(
+                &state.procedures_dir,
+                &sessions,
+                &mut session,
+                &child.submission_id,
+            )?;
+            if !session.submissions[&child.submission_id].acknowledged {
+                acknowledge_submission(&client, &sessions, &mut session, &child.submission_id)
+                    .await?;
             }
         }
+        if let Some(error) = first_error {
+            return Err(error);
+        }
     }
+    let (current, log_path) = load_execution_from_disk(&state.procedures_dir, execution_id)?;
+    summarize(
+        &current,
+        log_path
+            .parent()
+            .ok_or_else(|| "event log path has no parent".to_string())?,
+    )
+}
+
+async fn acknowledge_submission(
+    client: &DropPointClient,
+    sessions: &DropPointSessions,
+    session: &mut ActiveDropPointSession,
+    submission_id: &str,
+) -> Result<(), String> {
+    if !session
+        .submissions
+        .get(submission_id)
+        .is_some_and(|child| child.recorded)
+    {
+        return Err("cannot acknowledge an unrecorded DropPoint submission".to_string());
+    }
+    client
+        .acknowledge(
+            &session.drop_point_id,
+            submission_id,
+            session.pickup_token()?,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    *session = session.with_submission_acknowledged(submission_id)?;
+    sessions.persist(session)
 }
 
 #[tauri::command]
@@ -264,14 +329,24 @@ pub async fn cancel_attachment_drop_point_session(
     sessions: State<'_, DropPointSessions>,
     session_id: String,
 ) -> Result<(), String> {
+    let _operation = sessions.lock_operation().await;
     let session = sessions.get(&session_id)?;
     let client = configured_receiver_client(&state, &session)?;
+    close_session(&client, &sessions, &state.procedures_dir, session).await
+}
+
+async fn close_session(
+    client: &DropPointClient,
+    sessions: &DropPointSessions,
+    procedures_dir: &std::path::Path,
+    mut session: ActiveDropPointSession,
+) -> Result<(), String> {
     if !session.is_resumable() {
         return Ok(());
     }
-    if session.installed_bundle().is_some() {
-        record_session_bundle(&state.procedures_dir, &session)?;
-    }
+    record_pending_submissions(procedures_dir, sessions, &mut session)?;
+    session = session.with_close_pending();
+    sessions.persist(&session)?;
     match client
         .close(&session.drop_point_id, session.pickup_token()?)
         .await
@@ -279,82 +354,84 @@ pub async fn cancel_attachment_drop_point_session(
         Ok(()) => sessions.persist(&session.with_complete(CompletionOutcome::ClosedSuccessfully)),
         Err(error) => error.terminal().map_or_else(
             || Err(error.to_string()),
-            |terminal| {
-                finalize_terminal_session(&sessions, &state.procedures_dir, &session, terminal)
-            },
+            |terminal| finalize_terminal_session(sessions, procedures_dir, &session, terminal),
         ),
     }
 }
 
-async fn ensure_bundle_installed(
+async fn install_submission(
     client: &DropPointClient,
     sessions: &DropPointSessions,
     procedures_dir: &std::path::Path,
     session: ActiveDropPointSession,
+    submission_id: &str,
 ) -> Result<ActiveDropPointSession, String> {
-    match &session.phase {
-        SessionPhase::Waiting => {
-            let pickup = client
-                .pickup(
-                    &session.drop_point_id,
-                    session.pickup_token()?,
-                    session.max_bytes,
-                )
-                .await;
-            let (content_type, body) = match pickup {
-                Ok(pickup) => pickup,
-                Err(error) => {
-                    if let Some(terminal) = error.terminal() {
-                        finalize_terminal_session(sessions, procedures_dir, &session, terminal)?;
-                        return Err(error.to_string());
-                    }
-                    if error.is_not_ready() {
-                        return Err("DropPoint pickup is not ready; resume polling".to_string());
-                    }
-                    if error.is_retryable() {
-                        return Err(format!("retryable DropPoint pickup failure: {error}"));
-                    }
-                    return Err(error.to_string());
-                }
-            };
-            let (envelope_json, encrypted_payload) =
-                parse_pickup_multipart(&content_type, &body, session.max_bytes)
-                    .map_err(|error| error.to_string())?;
-            let identity = encrypted_bundle_identity(&envelope_json, &encrypted_payload)
-                .map_err(|error| error.to_string())?;
-            let private_key = session.recipient_private_key()?;
-            let recovered = decrypt_bundle(&private_key, &envelope_json, &encrypted_payload)
-                .map_err(|error| error.to_string())?;
-            let installed = install_bundle(
-                &session.execution_dir,
-                &session.drop_point_id,
-                &identity,
-                &recovered,
-            )
+    let pickup = client
+        .pickup(
+            &session.drop_point_id,
+            submission_id,
+            session.pickup_token()?,
+            session.max_bytes,
+        )
+        .await;
+    let (content_type, body) = match pickup {
+        Ok(pickup) => pickup,
+        Err(error) => {
+            if let Some(terminal) = error.terminal() {
+                finalize_terminal_session(sessions, procedures_dir, &session, terminal)?;
+                return Err(error.to_string());
+            }
+            if error.is_not_ready() {
+                return Err("DropPoint pickup is not ready; resume polling".to_string());
+            }
+            if error.is_retryable() {
+                return Err(format!("retryable DropPoint pickup failure: {error}"));
+            }
+            return Err(error.to_string());
+        }
+    };
+    let (envelope_json, encrypted_payload) =
+        parse_pickup_multipart(&content_type, &body, session.max_bytes)
             .map_err(|error| error.to_string())?;
-            drop(recovered);
-            let bundle = InstalledBundleState {
-                identity: installed.identity,
-                path: installed.path,
-            };
-            let updated = session.with_bundle_installed(bundle);
-            sessions.persist(&updated)?;
-            Ok(updated)
-        }
-        SessionPhase::BundleInstalled { .. } | SessionPhase::ClosePending { .. } => {
-            verify_session_bundle(&session)?;
-            Ok(session)
-        }
-        SessionPhase::Complete { .. } => Err("DropPoint session is already terminal".to_string()),
-    }
+    let identity = encrypted_bundle_identity(&envelope_json, &encrypted_payload)
+        .map_err(|error| error.to_string())?;
+    let private_key = session.recipient_private_key()?;
+    let recovered = decrypt_bundle(&private_key, &envelope_json, &encrypted_payload)
+        .map_err(|error| error.to_string())?;
+    let installed = install_bundle(
+        &session.execution_dir,
+        &session.drop_point_id,
+        submission_id,
+        &identity,
+        &recovered,
+    )
+    .map_err(|error| error.to_string())?;
+    drop(recovered);
+    let bundle = InstalledBundleState {
+        identity: installed.identity,
+        path: installed.path,
+    };
+    let updated = session.with_bundle_installed(submission_id.to_string(), bundle);
+    sessions.persist(&updated)?;
+    Ok(updated)
 }
 
-fn verify_session_bundle(session: &ActiveDropPointSession) -> Result<InstalledBundle, String> {
+fn verify_session_bundle(
+    session: &ActiveDropPointSession,
+    submission_id: &str,
+) -> Result<InstalledBundle, String> {
     let bundle = session
-        .installed_bundle()
+        .submissions
+        .get(submission_id)
+        .map(|s| &s.bundle)
         .ok_or_else(|| "DropPoint session has no installed bundle receipt".to_string())?;
-    verify_installed_bundle(&bundle.path, &session.drop_point_id, &bundle.identity)
-        .map_err(|error| error.to_string())
+    verify_installed_bundle(
+        &bundle.path,
+        &session.drop_point_id,
+        submission_id,
+        &bundle.identity,
+    )
+    .map_err(|error| error.to_string())
 }
 
 fn validate_session_execution_dir(
@@ -377,15 +454,21 @@ fn validate_session_execution_dir(
     Ok(execution_state)
 }
 
-fn record_session_bundle(
+fn record_one_submission(
     procedures_dir: &std::path::Path,
-    session: &ActiveDropPointSession,
+    sessions: &DropPointSessions,
+    session: &mut ActiveDropPointSession,
+    submission_id: &str,
 ) -> Result<Option<super::execution::ExecutionSummary>, String> {
-    if session.installed_bundle().is_none() {
+    if session
+        .submissions
+        .get(submission_id)
+        .is_some_and(|s| s.recorded)
+    {
         return Ok(None);
     }
     validate_session_execution_dir(procedures_dir, session)?;
-    let installed = verify_session_bundle(session)?;
+    let installed = verify_session_bundle(session, submission_id)?;
     let sources = installed
         .files
         .iter()
@@ -405,7 +488,39 @@ fn record_session_bundle(
             &session.input_id,
             sources,
         )?;
-    summarize(&recorded.state, &recorded.execution_dir).map(Some)
+    let summary = summarize(&recorded.state, &recorded.execution_dir)?;
+    *session = session.with_submission_recorded(submission_id)?;
+    sessions.persist(session)?;
+    Ok(Some(summary))
+}
+
+fn record_pending_submissions(
+    procedures_dir: &std::path::Path,
+    sessions: &DropPointSessions,
+    session: &mut ActiveDropPointSession,
+) -> Result<Option<super::execution::ExecutionSummary>, String> {
+    validate_session_execution_dir(procedures_dir, session)?;
+    for (id, installed) in
+        discover_installed_bundles(&session.execution_dir, &session.drop_point_id)
+            .map_err(|error| error.to_string())?
+    {
+        if !session.submissions.contains_key(&id) {
+            *session = session.with_bundle_installed(
+                id,
+                InstalledBundleState {
+                    identity: installed.identity,
+                    path: installed.path,
+                },
+            );
+            sessions.persist(session)?;
+        }
+    }
+    let ids = session.submissions.keys().cloned().collect::<Vec<_>>();
+    let mut summary = None;
+    for id in ids {
+        summary = record_one_submission(procedures_dir, sessions, session, &id)?.or(summary);
+    }
+    Ok(summary)
 }
 
 fn detected_safe_content_type(path: &std::path::Path) -> Result<String, String> {
@@ -435,10 +550,8 @@ fn finalize_terminal_session(
     session: &ActiveDropPointSession,
     terminal: RemoteTerminal,
 ) -> Result<(), String> {
-    let current = sessions.get(&session.session_id)?;
-    if current.installed_bundle().is_some() {
-        record_session_bundle(procedures_dir, &current)?;
-    }
+    let mut current = sessions.get(&session.session_id)?;
+    record_pending_submissions(procedures_dir, sessions, &mut current)?;
     sessions.persist(&current.with_complete(terminal.into()))
 }
 
@@ -449,7 +562,7 @@ fn validate_status_identity(
     let status_expiry = parse_server_datetime(&status.expires_at)?;
     if status.display_name != session.display_name
         || status_expiry != session.expires_at
-        || status.encrypted_size > session.max_bytes
+        || status.pending_bytes > status.max_pending_bytes
     {
         return Err(
             "DropPoint status response does not match persisted receiver state".to_string(),
@@ -710,7 +823,7 @@ version: 1.0.0
         clippy::too_many_lines,
         reason = "the end-to-end restart scenario intentionally keeps every durability phase visible"
     )]
-    fn pickup_install_record_restart_and_close_is_end_to_end_resumable() {
+    fn repeated_uploads_ack_restart_and_explicit_close_are_resumable() {
         let encrypted_payload = URL_SAFE_NO_PAD.decode(ENCRYPTED_PAYLOAD).unwrap();
         let pickup_body = multipart_body(ENVELOPE_JSON.as_bytes(), &encrypted_payload);
         let (base_url, requests, server) = mock_relay(pickup_body);
@@ -780,32 +893,85 @@ version: 1.0.0
         });
         sessions.insert(&session).unwrap();
 
-        let installed = tauri::async_runtime::block_on(ensure_bundle_installed(
-            &client, &sessions, &workspace, session,
+        let mut installed = tauri::async_runtime::block_on(install_submission(
+            &client,
+            &sessions,
+            &workspace,
+            session.clone(),
+            "sub_AAAAAAAAAAAAAAAAAAAAAA",
         ))
         .unwrap();
-        let first_finish = tauri::async_runtime::block_on(finish_installed_import(
-            &client, &sessions, &workspace, &installed,
+        record_one_submission(
+            &workspace,
+            &sessions,
+            &mut installed,
+            "sub_AAAAAAAAAAAAAAAAAAAAAA",
+        )
+        .unwrap();
+        let ack = tauri::async_runtime::block_on(acknowledge_submission(
+            &client,
+            &sessions,
+            &mut installed,
+            "sub_AAAAAAAAAAAAAAAAAAAAAA",
         ));
-        assert!(first_finish.is_err());
+        assert!(ack.is_err());
         drop(sessions);
 
-        let restarted = DropPointSessions::new(state_root, &workspace).unwrap();
-        let resumed = restarted.get(&installed.session_id).unwrap();
-        assert!(matches!(resumed.phase, SessionPhase::ClosePending { .. }));
-        let resumed = tauri::async_runtime::block_on(ensure_bundle_installed(
-            &client, &restarted, &workspace, resumed,
+        let restarted = DropPointSessions::new(state_root.clone(), &workspace).unwrap();
+        let mut resumed = restarted.get(&installed.session_id).unwrap();
+        assert!(resumed.submissions["sub_AAAAAAAAAAAAAAAAAAAAAA"].recorded);
+        assert!(!resumed.submissions["sub_AAAAAAAAAAAAAAAAAAAAAA"].acknowledged);
+        assert!(
+            record_pending_submissions(&workspace, &restarted, &mut resumed)
+                .unwrap()
+                .is_none()
+        );
+        tauri::async_runtime::block_on(acknowledge_submission(
+            &client,
+            &restarted,
+            &mut resumed,
+            "sub_AAAAAAAAAAAAAAAAAAAAAA",
         ))
         .unwrap();
-        tauri::async_runtime::block_on(finish_installed_import(
-            &client, &restarted, &workspace, &resumed,
+        assert!(resumed.is_resumable());
+        let second_id = format!("sub_{}", URL_SAFE_NO_PAD.encode([1u8; 16]));
+        let mut second = tauri::async_runtime::block_on(install_submission(
+            &client, &restarted, &workspace, resumed, &second_id,
+        ))
+        .unwrap();
+        record_pending_submissions(&workspace, &restarted, &mut second).unwrap();
+        tauri::async_runtime::block_on(acknowledge_submission(
+            &client,
+            &restarted,
+            &mut second,
+            &second_id,
+        ))
+        .unwrap();
+        assert!(second.is_resumable());
+        assert_eq!(second.submissions.len(), 2);
+        assert!(
+            tauri::async_runtime::block_on(close_session(&client, &restarted, &workspace, second,))
+                .is_err()
+        );
+        drop(restarted);
+        let restarted = DropPointSessions::new(state_root, &workspace).unwrap();
+        let pending_close = restarted.get(&installed.session_id).unwrap();
+        assert!(matches!(pending_close.phase, SessionPhase::ClosePending));
+        tauri::async_runtime::block_on(close_session(
+            &client,
+            &restarted,
+            &workspace,
+            pending_close,
         ))
         .unwrap();
 
-        let final_state = restarted.get(&resumed.session_id).unwrap();
+        let final_state = restarted.get(&installed.session_id).unwrap();
         assert!(final_state.recipient_private_key().is_err());
         assert!(final_state.pickup_token().is_err());
-        let installed_path = final_state.installed_bundle().unwrap().path.clone();
+        let installed_path = final_state.submissions["sub_AAAAAAAAAAAAAAAAAAAAAA"]
+            .bundle
+            .path
+            .clone();
         assert_eq!(
             std::fs::read(installed_path.join("scan-01.txt")).unwrap(),
             b"hello drop point\n"
@@ -820,22 +986,89 @@ version: 1.0.0
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(attachment_events.len(), 1);
+        assert_eq!(attachment_events.len(), 2);
         assert_eq!(
             attachment_events[0][0].content_type,
             "application/octet-stream"
         );
 
-        let observed = requests.into_iter().take(3).collect::<Vec<_>>();
+        let observed = requests.into_iter().collect::<Vec<_>>();
         assert_eq!(
             observed,
             vec![
-                ("GET /api/drop-points/dp_example/pickup".to_string(), true),
+                (
+                    "GET /api/drop-points/dp_example/submissions/sub_AAAAAAAAAAAAAAAAAAAAAA/pickup"
+                        .to_string(),
+                    true
+                ),
+                (
+                    "DELETE /api/drop-points/dp_example/submissions/sub_AAAAAAAAAAAAAAAAAAAAAA"
+                        .to_string(),
+                    true
+                ),
+                (
+                    "DELETE /api/drop-points/dp_example/submissions/sub_AAAAAAAAAAAAAAAAAAAAAA"
+                        .to_string(),
+                    true
+                ),
+                (
+                    format!("GET /api/drop-points/dp_example/submissions/{second_id}/pickup"),
+                    true
+                ),
+                (
+                    format!("DELETE /api/drop-points/dp_example/submissions/{second_id}"),
+                    true
+                ),
                 ("DELETE /api/drop-points/dp_example".to_string(), true),
                 ("DELETE /api/drop-points/dp_example".to_string(), true),
             ]
         );
         server.join().unwrap();
+
+        // A published receipt must survive expiry even if private-state persistence
+        // was interrupted immediately after installation.
+        let mut recovery = session;
+        recovery.session_id = uuid::Uuid::new_v4().to_string();
+        recovery.drop_point_id = "dp_recovery".to_string();
+        restarted.insert(&recovery).unwrap();
+        let files = decrypt_bundle(
+            &recovery.recipient_private_key().unwrap(),
+            ENVELOPE_JSON.as_bytes(),
+            &encrypted_payload,
+        )
+        .unwrap();
+        let identity =
+            encrypted_bundle_identity(ENVELOPE_JSON.as_bytes(), &encrypted_payload).unwrap();
+        install_bundle(
+            &recovery.execution_dir,
+            &recovery.drop_point_id,
+            &second_id,
+            &identity,
+            &files,
+        )
+        .unwrap();
+        assert!(
+            restarted
+                .get(&recovery.session_id)
+                .unwrap()
+                .submissions
+                .is_empty()
+        );
+        finalize_terminal_session(&restarted, &workspace, &recovery, RemoteTerminal::Expired)
+            .unwrap();
+        let recovered = restarted.get(&recovery.session_id).unwrap();
+        assert!(recovered.submissions[&second_id].recorded);
+        assert!(recovered.recipient_private_key().is_err());
+        let events = EventLog::new(recorded.execution_dir.join("events.jsonl"))
+            .read()
+            .unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::AttachmentsAdded { .. }))
+                .count(),
+            3
+        );
     }
 
     fn multipart_body(envelope: &[u8], payload: &[u8]) -> Vec<u8> {
@@ -874,6 +1107,14 @@ version: 1.0.0
                     "application/json",
                     br#"{"error":{"code":"drop_point_close_failed","message":"temporary"}}"#,
                 ),
+                http_response("204 No Content", "application/json", b""),
+                http_response(
+                    "200 OK",
+                    "multipart/mixed; boundary=test-boundary",
+                    &pickup_body,
+                ),
+                http_response("204 No Content", "application/json", b""),
+                http_response("500 Internal Server Error", "application/json", b"{}"),
                 http_response("204 No Content", "application/json", b""),
             ];
             for response in responses {
