@@ -15,7 +15,7 @@ use crate::drop_point::secure_fs::{
 };
 
 const RECEIPT_NAME: &str = ".droppoint-receipt.json";
-const RECEIPT_VERSION: u32 = 1;
+const RECEIPT_VERSION: u32 = 2;
 const IDENTITY_DOMAIN: &[u8] = b"DropPoint installed bundle v1\0";
 const MAX_RECEIPT_FILES: usize = 1000;
 
@@ -41,6 +41,7 @@ pub struct InstalledFile {
 struct BundleReceipt {
     receipt_version: u32,
     drop_point_id: String,
+    submission_id: String,
     bundle_sha256: String,
     files: Vec<ReceiptFile>,
 }
@@ -94,17 +95,19 @@ pub fn encrypted_bundle_identity(
 pub fn install_bundle(
     execution_dir: &Path,
     drop_point_id: &str,
+    submission_id: &str,
     identity: &str,
     recovered_files: &[RecoveredFile],
 ) -> Result<InstalledBundle, BundleStorageError> {
     validate_drop_point_id(drop_point_id)?;
+    validate_submission_id(submission_id)?;
     validate_identity(identity)?;
-    let expected_receipt = build_receipt(drop_point_id, identity, recovered_files)?;
+    let expected_receipt = build_receipt(drop_point_id, submission_id, identity, recovered_files)?;
 
     verify_execution_directory(execution_dir)?;
     let attachments_dir = execution_dir.join("attachments");
     ensure_private_directory(&attachments_dir).map_err(BundleStorageError::Filesystem)?;
-    let final_name = format!("bundle-{drop_point_id}");
+    let final_name = format!("bundle-{drop_point_id}-{submission_id}");
     let _install_lock = acquire_install_lock(&attachments_dir, &final_name)?;
     cleanup_stale_staging_directories(&attachments_dir, &final_name)?;
     let final_path = attachments_dir.join(&final_name);
@@ -151,19 +154,59 @@ pub fn install_bundle(
     receipt_to_install(&final_path, expected_receipt, already_installed)
 }
 
+/// Recover published bundles if the process stopped before private state was saved.
+pub fn discover_installed_bundles(
+    execution_dir: &Path,
+    drop_point_id: &str,
+) -> Result<Vec<(String, InstalledBundle)>, BundleStorageError> {
+    validate_drop_point_id(drop_point_id)?;
+    let attachments = execution_dir.join("attachments");
+    let entries = match std::fs::read_dir(&attachments) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(BundleStorageError::Filesystem(error.to_string())),
+    };
+    let prefix = format!("bundle-{drop_point_id}-sub_");
+    let mut bundles = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| BundleStorageError::Filesystem(error.to_string()))?;
+        if !entry.file_name().to_string_lossy().starts_with(&prefix) {
+            continue;
+        }
+        let receipt = load_receipt(&entry.path())?;
+        let expected_name = format!("bundle-{drop_point_id}-{}", receipt.submission_id);
+        if entry.file_name() != std::ffi::OsStr::new(&expected_name) {
+            return Err(BundleStorageError::InstallationConflict);
+        }
+        let installed = verify_installed_bundle(
+            &entry.path(),
+            drop_point_id,
+            &receipt.submission_id,
+            &receipt.bundle_sha256,
+        )?;
+        bundles.push((receipt.submission_id, installed));
+    }
+    Ok(bundles)
+}
+
 pub fn verify_installed_bundle(
     path: &Path,
     drop_point_id: &str,
+    submission_id: &str,
     identity: &str,
 ) -> Result<InstalledBundle, BundleStorageError> {
     validate_drop_point_id(drop_point_id)?;
+    validate_submission_id(submission_id)?;
     validate_identity(identity)?;
     let parent = path
         .parent()
         .ok_or(BundleStorageError::InstallationConflict)?;
     verify_private_directory(parent).map_err(|_| BundleStorageError::InstallationConflict)?;
     let receipt = load_receipt(path)?;
-    if receipt.drop_point_id != drop_point_id || receipt.bundle_sha256 != identity {
+    if receipt.drop_point_id != drop_point_id
+        || receipt.submission_id != submission_id
+        || receipt.bundle_sha256 != identity
+    {
         return Err(BundleStorageError::InstallationConflict);
     }
     verify_receipt_and_files(path, &receipt)?;
@@ -260,6 +303,7 @@ fn verify_execution_directory(execution_dir: &Path) -> Result<(), BundleStorageE
 
 fn build_receipt(
     drop_point_id: &str,
+    submission_id: &str,
     identity: &str,
     recovered_files: &[RecoveredFile],
 ) -> Result<BundleReceipt, BundleStorageError> {
@@ -302,6 +346,7 @@ fn build_receipt(
     Ok(BundleReceipt {
         receipt_version: RECEIPT_VERSION,
         drop_point_id: drop_point_id.to_string(),
+        submission_id: submission_id.to_string(),
         bundle_sha256: identity.to_string(),
         files,
     })
@@ -344,6 +389,7 @@ fn validate_receipt(receipt: &BundleReceipt) -> Result<(), BundleStorageError> {
         ));
     }
     validate_drop_point_id(&receipt.drop_point_id)?;
+    validate_submission_id(&receipt.submission_id)?;
     validate_identity(&receipt.bundle_sha256)?;
     if !(1..=MAX_RECEIPT_FILES).contains(&receipt.files.len()) {
         return Err(BundleStorageError::InvalidReceipt(
@@ -525,6 +571,19 @@ fn validate_drop_point_id(value: &str) -> Result<(), BundleStorageError> {
     }
 }
 
+fn validate_submission_id(value: &str) -> Result<(), BundleStorageError> {
+    if value.strip_prefix("sub_").is_some_and(|suffix| {
+        !suffix.is_empty()
+            && suffix
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    }) {
+        Ok(())
+    } else {
+        Err(BundleStorageError::InvalidDropPointId)
+    }
+}
+
 fn validate_identity(value: &str) -> Result<(), BundleStorageError> {
     if is_lower_hex_sha256(value) {
         Ok(())
@@ -592,6 +651,7 @@ mod tests {
         let first = install_bundle(
             &execution_dir,
             "dp_example",
+            "sub_first",
             &identity,
             &recovered(b"hello"),
         )
@@ -599,19 +659,57 @@ mod tests {
         assert!(!first.already_installed);
         assert_eq!(
             first.files[0].relative_path,
-            "attachments/bundle-dp_example/scan.txt"
+            "attachments/bundle-dp_example-sub_first/scan.txt"
         );
 
         let second = install_bundle(
             &execution_dir,
             "dp_example",
+            "sub_first",
             &identity,
             &recovered(b"hello"),
         )
         .unwrap();
         assert!(second.already_installed);
         assert_eq!(first.path, second.path);
-        verify_installed_bundle(&first.path, "dp_example", &identity).unwrap();
+        verify_installed_bundle(&first.path, "dp_example", "sub_first", &identity).unwrap();
+    }
+
+    #[test]
+    fn installs_multiple_submissions_beneath_the_same_attachments_parent() {
+        let temporary = tempfile::tempdir().unwrap();
+        let execution_dir = temporary.path().join("execution");
+        std::fs::create_dir(&execution_dir).unwrap();
+        let first_identity = encrypted_bundle_identity(b"first", b"payload").unwrap();
+        let second_identity = encrypted_bundle_identity(b"second", b"payload").unwrap();
+
+        let first = install_bundle(
+            &execution_dir,
+            "dp_example",
+            "sub_first",
+            &first_identity,
+            &recovered(b"first"),
+        )
+        .unwrap();
+        let second = install_bundle(
+            &execution_dir,
+            "dp_example",
+            "sub_second",
+            &second_identity,
+            &recovered(b"second"),
+        )
+        .unwrap();
+
+        assert_eq!(first.path.parent(), second.path.parent());
+        assert_ne!(first.path, second.path);
+        assert_eq!(
+            std::fs::read(first.path.join("scan.txt")).unwrap(),
+            b"first"
+        );
+        assert_eq!(
+            std::fs::read(second.path.join("scan.txt")).unwrap(),
+            b"second"
+        );
     }
 
     #[test]
@@ -620,7 +718,7 @@ mod tests {
         let execution_dir = temporary.path().join("execution");
         let attachments_dir = execution_dir.join("attachments");
         std::fs::create_dir_all(&attachments_dir).unwrap();
-        let stale = attachments_dir.join(".bundle-dp_example.crashed.tmp");
+        let stale = attachments_dir.join(".bundle-dp_example-sub_first.crashed.tmp");
         std::fs::create_dir(&stale).unwrap();
         std::fs::write(stale.join("partial.txt"), b"partial plaintext").unwrap();
         let identity = encrypted_bundle_identity(b"envelope", b"payload").unwrap();
@@ -628,6 +726,7 @@ mod tests {
         install_bundle(
             &execution_dir,
             "dp_example",
+            "sub_first",
             &identity,
             &recovered(b"complete"),
         )
@@ -644,6 +743,7 @@ mod tests {
         let first = install_bundle(
             &execution_dir,
             "dp_example",
+            "sub_first",
             &first_identity,
             &recovered(b"first"),
         )
@@ -653,6 +753,7 @@ mod tests {
             install_bundle(
                 &execution_dir,
                 "dp_example",
+                "sub_first",
                 &second_identity,
                 &recovered(b"second")
             ),
@@ -673,17 +774,22 @@ mod tests {
         let installed = install_bundle(
             &execution_dir,
             "dp_example",
+            "sub_first",
             &identity,
             &recovered(b"first"),
         )
         .unwrap();
 
         std::fs::write(installed.path.join("extra"), b"").unwrap();
-        assert!(verify_installed_bundle(&installed.path, "dp_example", &identity).is_err());
+        assert!(
+            verify_installed_bundle(&installed.path, "dp_example", "sub_first", &identity).is_err()
+        );
         std::fs::remove_file(installed.path.join("extra")).unwrap();
 
         std::fs::write(installed.path.join("scan.txt"), b"changed").unwrap();
-        assert!(verify_installed_bundle(&installed.path, "dp_example", &identity).is_err());
+        assert!(
+            verify_installed_bundle(&installed.path, "dp_example", "sub_first", &identity).is_err()
+        );
     }
 
     #[test]
@@ -695,6 +801,7 @@ mod tests {
         let installed = install_bundle(
             &execution_dir,
             "dp_example",
+            "sub_first",
             &identity,
             &recovered(b"first"),
         )
@@ -702,9 +809,13 @@ mod tests {
         let file_path = installed.path.join("scan.txt");
 
         std::fs::remove_file(&file_path).unwrap();
-        assert!(verify_installed_bundle(&installed.path, "dp_example", &identity).is_err());
+        assert!(
+            verify_installed_bundle(&installed.path, "dp_example", "sub_first", &identity).is_err()
+        );
         std::fs::create_dir(&file_path).unwrap();
-        assert!(verify_installed_bundle(&installed.path, "dp_example", &identity).is_err());
+        assert!(
+            verify_installed_bundle(&installed.path, "dp_example", "sub_first", &identity).is_err()
+        );
     }
 
     #[cfg(unix)]
@@ -719,22 +830,29 @@ mod tests {
         let installed = install_bundle(
             &execution_dir,
             "dp_example",
+            "sub_first",
             &identity,
             &recovered(b"first"),
         )
         .unwrap();
         let file_path = installed.path.join("scan.txt");
         std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(verify_installed_bundle(&installed.path, "dp_example", &identity).is_err());
+        assert!(
+            verify_installed_bundle(&installed.path, "dp_example", "sub_first", &identity).is_err()
+        );
 
         std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o600)).unwrap();
         let receipt_path = installed.path.join(RECEIPT_NAME);
         std::fs::set_permissions(&receipt_path, std::fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(verify_installed_bundle(&installed.path, "dp_example", &identity).is_err());
+        assert!(
+            verify_installed_bundle(&installed.path, "dp_example", "sub_first", &identity).is_err()
+        );
 
         std::fs::set_permissions(&receipt_path, std::fs::Permissions::from_mode(0o600)).unwrap();
         std::fs::set_permissions(&installed.path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(verify_installed_bundle(&installed.path, "dp_example", &identity).is_err());
+        assert!(
+            verify_installed_bundle(&installed.path, "dp_example", "sub_first", &identity).is_err()
+        );
     }
 
     #[cfg(unix)]
@@ -749,12 +867,15 @@ mod tests {
         let installed = install_bundle(
             &execution_dir,
             "dp_example",
+            "sub_first",
             &identity,
             &recovered(b"first"),
         )
         .unwrap();
         std::fs::remove_file(installed.path.join("scan.txt")).unwrap();
         symlink("elsewhere", installed.path.join("scan.txt")).unwrap();
-        assert!(verify_installed_bundle(&installed.path, "dp_example", &identity).is_err());
+        assert!(
+            verify_installed_bundle(&installed.path, "dp_example", "sub_first", &identity).is_err()
+        );
     }
 }

@@ -35,7 +35,7 @@ Each step in the procedure is displayed as a card. To work through a step:
 
 ## Attachment Uploads from Another Device
 
-If [DropPoint integration](drop-point.md) is configured, attachment inputs also show **Upload via QR Code**. Use it when a sender needs to upload files from another device, such as photos from a phone. Procnote creates a short-lived DropPoint upload session, imports the encrypted upload as local attachments, and then closes the remote drop point.
+If [DropPoint integration](drop-point.md) is configured, attachment inputs also show **Upload via QR Code**. Use it to receive files from another device, such as periodic phone photos. Scan once and keep the dialog open: Procnote imports and acknowledges each submission independently while the same session stays available. Choose **Stop receiving** to close it.
 
 ## Adding Steps During Execution
 
@@ -83,7 +83,7 @@ my-workspace/
             └── attachments/
                 ├── a1b2c3d-report.pdf
                 ├── d4e5f6a-photo.jpg
-                └── bundle-dp_…/          # Atomically installed DropPoint bundle
+                └── bundle-dp_…-sub_…/    # Atomically installed DropPoint submission
                     ├── .droppoint-receipt.json
                     └── scan-01.jpg
 ```

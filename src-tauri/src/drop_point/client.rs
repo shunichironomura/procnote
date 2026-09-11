@@ -1,6 +1,9 @@
+use std::collections::HashSet;
 use std::fmt;
 use std::time::Duration;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use unicode_general_category::{GeneralCategory, get_general_category};
@@ -144,6 +147,10 @@ pub enum ApiErrorCode {
     DropPointFailed,
     DropPointNotFound,
     PayloadUnavailable,
+    SubmissionNotFound,
+    SubmissionAcknowledged,
+    SubmissionFailed,
+    SubmissionNotReady,
     Other,
     Missing,
 }
@@ -157,6 +164,10 @@ impl fmt::Display for ApiErrorCode {
             Self::DropPointFailed => formatter.write_str("drop_point_failed"),
             Self::DropPointNotFound => formatter.write_str("drop_point_not_found"),
             Self::PayloadUnavailable => formatter.write_str("payload_unavailable"),
+            Self::SubmissionNotFound => formatter.write_str("submission_not_found"),
+            Self::SubmissionAcknowledged => formatter.write_str("submission_acknowledged"),
+            Self::SubmissionFailed => formatter.write_str("submission_failed"),
+            Self::SubmissionNotReady => formatter.write_str("submission_not_ready"),
             Self::Other => formatter.write_str("unknown_error"),
             Self::Missing => formatter.write_str("unparsable_error"),
         }
@@ -214,7 +225,7 @@ impl DropPointClientError {
             self,
             Self::Http {
                 status: reqwest::StatusCode::CONFLICT,
-                code: ApiErrorCode::DropNotReady,
+                code: ApiErrorCode::DropNotReady | ApiErrorCode::SubmissionNotReady,
             }
         )
     }
@@ -250,7 +261,6 @@ struct CreateDropPointRequest {
     ttl_seconds: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_bytes: Option<u64>,
-    single_use: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -262,14 +272,14 @@ pub struct CreateDropPointResponse {
     pub pickup_token: Zeroizing<String>,
     pub expires_at: String,
     pub max_bytes: u64,
+    pub max_pending_submissions: u64,
+    pub max_pending_bytes: u64,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum RelayStatus {
     Open,
-    Receiving,
-    Ready,
     Closed,
     Expired,
     Failed,
@@ -280,8 +290,6 @@ impl RelayStatus {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Open => "open",
-            Self::Receiving => "receiving",
-            Self::Ready => "ready",
             Self::Closed => "closed",
             Self::Expired => "expired",
             Self::Failed => "failed",
@@ -294,7 +302,7 @@ impl RelayStatus {
             Self::Closed => Some(RemoteTerminal::Closed),
             Self::Expired => Some(RemoteTerminal::Expired),
             Self::Failed => Some(RemoteTerminal::Failed),
-            Self::Open | Self::Receiving | Self::Ready => None,
+            Self::Open => None,
         }
     }
 }
@@ -304,10 +312,26 @@ impl RelayStatus {
 pub struct DropPointStatusResponse {
     pub status: RelayStatus,
     pub display_name: String,
-    pub encrypted_size: u64,
-    pub dropped_at: Option<String>,
-    pub first_picked_up_at: Option<String>,
     pub expires_at: String,
+    pub pending_submissions: u64,
+    pub pending_bytes: u64,
+    pub max_pending_submissions: u64,
+    pub max_pending_bytes: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SubmissionSummary {
+    pub submission_id: String,
+    pub encrypted_size: u64,
+    pub dropped_at: String,
+    pub first_picked_up_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListSubmissionsResponse {
+    submissions: Vec<SubmissionSummary>,
 }
 
 #[derive(Clone)]
@@ -353,7 +377,6 @@ impl DropPointClient {
             client_name: CLIENT_NAME,
             ttl_seconds: self.config.ttl_seconds,
             max_bytes: self.config.max_bytes,
-            single_use: true,
         };
         let response = self
             .http
@@ -393,9 +416,31 @@ impl DropPointClient {
         Ok(status)
     }
 
+    pub async fn list_submissions(
+        &self,
+        drop_point_id: &str,
+        pickup_token: &str,
+    ) -> Result<Vec<SubmissionSummary>, DropPointClientError> {
+        let response = self
+            .http
+            .get(self.drop_point_endpoint(drop_point_id, Some("submissions"))?)
+            .bearer_auth(pickup_token)
+            .header(ACCEPT, "application/json")
+            .send()
+            .await
+            .map_err(transport_error)?;
+        let response = ensure_success(response).await?;
+        require_json_content_type(&response)?;
+        let bytes = Zeroizing::new(read_body_limited(response, JSON_BODY_LIMIT).await?);
+        let listed: ListSubmissionsResponse = parse_json(&bytes, "submission list response")?;
+        validate_submissions(&listed.submissions)?;
+        Ok(listed.submissions)
+    }
+
     pub async fn pickup(
         &self,
         drop_point_id: &str,
+        submission_id: &str,
         pickup_token: &str,
         max_payload_bytes: u64,
     ) -> Result<(String, Vec<u8>), DropPointClientError> {
@@ -406,7 +451,7 @@ impl DropPointClient {
         }
         let response = self
             .http
-            .get(self.drop_point_endpoint(drop_point_id, Some("pickup"))?)
+            .get(self.submission_endpoint(drop_point_id, submission_id, Some("pickup"))?)
             .bearer_auth(pickup_token)
             .header(ACCEPT, "multipart/mixed")
             .send()
@@ -433,6 +478,28 @@ impl DropPointClient {
             })?;
         let body = read_body_limited(response, body_limit).await?;
         Ok((content_type, body))
+    }
+
+    pub async fn acknowledge(
+        &self,
+        drop_point_id: &str,
+        submission_id: &str,
+        pickup_token: &str,
+    ) -> Result<(), DropPointClientError> {
+        let response = self
+            .http
+            .delete(self.submission_endpoint(drop_point_id, submission_id, None)?)
+            .bearer_auth(pickup_token)
+            .send()
+            .await
+            .map_err(transport_error)?;
+        let response = ensure_success(response).await?;
+        if response.status() != reqwest::StatusCode::NO_CONTENT {
+            return Err(DropPointClientError::InvalidResponse(
+                "acknowledge response must use HTTP 204".to_string(),
+            ));
+        }
+        Ok(())
     }
 
     pub async fn close(
@@ -484,6 +551,30 @@ impl DropPointClient {
         }
         self.endpoint(&segments)
     }
+
+    fn submission_endpoint(
+        &self,
+        drop_point_id: &str,
+        submission_id: &str,
+        suffix: Option<&str>,
+    ) -> Result<Url, DropPointClientError> {
+        validate_capability(drop_point_id, "dp_")
+            .map_err(|()| DropPointClientError::InvalidDropPointId)?;
+        validate_submission_id(submission_id).map_err(|()| {
+            DropPointClientError::InvalidResponse("submission_id is invalid".to_string())
+        })?;
+        let mut segments = vec![
+            "api",
+            "drop-points",
+            drop_point_id,
+            "submissions",
+            submission_id,
+        ];
+        if let Some(suffix) = suffix {
+            segments.push(suffix);
+        }
+        self.endpoint(&segments)
+    }
 }
 
 fn validate_create_response(
@@ -505,17 +596,55 @@ fn validate_create_response(
             "create response max_bytes is outside the protocol range".to_string(),
         ));
     }
+    if created.max_pending_submissions == 0
+        || created.max_pending_bytes < created.max_bytes
+        || created.max_pending_bytes > MAX_PROTOCOL_BYTES
+    {
+        return Err(DropPointClientError::InvalidResponse(
+            "create response queue limits are outside the protocol range".to_string(),
+        ));
+    }
     validate_drop_link(&created.drop_link, base_url)
 }
 
 fn validate_status_response(status: &DropPointStatusResponse) -> Result<(), DropPointClientError> {
     validate_display_name(&status.display_name)?;
     validate_timestamp(&status.expires_at, "expires_at")?;
-    if let Some(value) = &status.dropped_at {
-        validate_timestamp(value, "dropped_at")?;
+    if status.max_pending_submissions == 0
+        || status.pending_submissions > status.max_pending_submissions
+        || status.max_pending_bytes == 0
+        || status.max_pending_bytes > MAX_PROTOCOL_BYTES
+        || status.pending_bytes > status.max_pending_bytes
+    {
+        return Err(DropPointClientError::InvalidResponse(
+            "status response queue values are outside their bounds".to_string(),
+        ));
     }
-    if let Some(value) = &status.first_picked_up_at {
-        validate_timestamp(value, "first_picked_up_at")?;
+    Ok(())
+}
+
+fn validate_submissions(submissions: &[SubmissionSummary]) -> Result<(), DropPointClientError> {
+    let mut ids = HashSet::with_capacity(submissions.len());
+    for submission in submissions {
+        validate_submission_id(&submission.submission_id).map_err(|()| {
+            DropPointClientError::InvalidResponse(
+                "submission list contains an invalid submission_id".to_string(),
+            )
+        })?;
+        if !ids.insert(&submission.submission_id) {
+            return Err(DropPointClientError::InvalidResponse(
+                "submission list contains a duplicate submission_id".to_string(),
+            ));
+        }
+        if submission.encrypted_size == 0 || submission.encrypted_size > MAX_PROTOCOL_BYTES {
+            return Err(DropPointClientError::InvalidResponse(
+                "submission list contains an invalid encrypted_size".to_string(),
+            ));
+        }
+        validate_timestamp(&submission.dropped_at, "dropped_at")?;
+        if let Some(value) = &submission.first_picked_up_at {
+            validate_timestamp(value, "first_picked_up_at")?;
+        }
     }
     Ok(())
 }
@@ -595,6 +724,19 @@ fn validate_capability(value: &str, prefix: &str) -> Result<(), ()> {
         .ok_or(())
 }
 
+fn validate_submission_id(value: &str) -> Result<(), ()> {
+    let encoded = value.strip_prefix("sub_").ok_or(())?;
+    if !(22..=43).contains(&encoded.len()) || !encoded.bytes().all(is_capability_byte) {
+        return Err(());
+    }
+    let decoded = URL_SAFE_NO_PAD.decode(encoded).map_err(|_| ())?;
+    if (16..=32).contains(&decoded.len()) {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
 async fn ensure_success(
     response: reqwest::Response,
 ) -> Result<reqwest::Response, DropPointClientError> {
@@ -635,6 +777,10 @@ fn parse_api_error_code(bytes: &[u8]) -> ApiErrorCode {
         "drop_point_failed" => ApiErrorCode::DropPointFailed,
         "drop_point_not_found" => ApiErrorCode::DropPointNotFound,
         "payload_unavailable" => ApiErrorCode::PayloadUnavailable,
+        "submission_not_found" => ApiErrorCode::SubmissionNotFound,
+        "submission_acknowledged" => ApiErrorCode::SubmissionAcknowledged,
+        "submission_failed" => ApiErrorCode::SubmissionFailed,
+        "submission_not_ready" => ApiErrorCode::SubmissionNotReady,
         _ => ApiErrorCode::Other,
     }
 }
@@ -826,6 +972,25 @@ mod tests {
             "https://drop.example.com/api/drop-points/dp_example/pickup"
         );
         assert!(client.drop_point_endpoint("../secret", None).is_err());
+        assert_eq!(
+            client
+                .submission_endpoint("dp_example", "sub_AAAAAAAAAAAAAAAAAAAAAA", Some("pickup"))
+                .unwrap()
+                .as_str(),
+            "https://drop.example.com/api/drop-points/dp_example/submissions/sub_AAAAAAAAAAAAAAAAAAAAAA/pickup"
+        );
+        assert_eq!(
+            client
+                .submission_endpoint("dp_example", "sub_AAAAAAAAAAAAAAAAAAAAAA", None)
+                .unwrap()
+                .as_str(),
+            "https://drop.example.com/api/drop-points/dp_example/submissions/sub_AAAAAAAAAAAAAAAAAAAAAA"
+        );
+        assert!(
+            client
+                .submission_endpoint("dp_example", "sub_too-short", None)
+                .is_err()
+        );
     }
 
     #[test]
@@ -834,34 +999,37 @@ mod tests {
             client_name: CLIENT_NAME,
             ttl_seconds: None,
             max_bytes: None,
-            single_use: true,
         };
         let value = serde_json::to_value(request).unwrap();
         assert_eq!(value["client_name"], CLIENT_NAME);
-        assert_eq!(value["single_use"], true);
+        assert!(value.get("single_use").is_none());
         assert!(value.get("ttl_seconds").is_none());
         assert!(value.get("max_bytes").is_none());
     }
 
     #[test]
-    fn parses_all_six_statuses_and_rejects_unknown_status() {
-        for status in ["open", "receiving", "ready", "closed", "expired", "failed"] {
+    fn parses_only_parent_statuses() {
+        for status in ["open", "closed", "expired", "failed"] {
             let json = format!(
-                r#"{{"status":"{status}","display_name":"calm-otter","encrypted_size":0,"dropped_at":null,"first_picked_up_at":null,"expires_at":"2026-06-30T12:15:00Z"}}"#
+                r#"{{"status":"{status}","display_name":"calm-otter","expires_at":"2026-06-30T12:15:00Z","pending_submissions":0,"pending_bytes":0,"max_pending_submissions":10,"max_pending_bytes":10240}}"#
             );
             let parsed: DropPointStatusResponse = parse_json(json.as_bytes(), "status").unwrap();
             assert_eq!(parsed.status.as_str(), status);
         }
-        let unknown = br#"{"status":"waiting","display_name":"calm-otter","encrypted_size":0,"dropped_at":null,"first_picked_up_at":null,"expires_at":"2026-06-30T12:15:00Z"}"#;
-        assert!(parse_json::<DropPointStatusResponse>(unknown, "status").is_err());
+        for unknown in ["receiving", "ready", "waiting"] {
+            let json = format!(
+                r#"{{"status":"{unknown}","display_name":"calm-otter","expires_at":"2026-06-30T12:15:00Z","pending_submissions":0,"pending_bytes":0,"max_pending_submissions":10,"max_pending_bytes":10240}}"#
+            );
+            assert!(parse_json::<DropPointStatusResponse>(json.as_bytes(), "status").is_err());
+        }
     }
 
     #[test]
     fn strict_api_response_parsing_rejects_unknown_duplicate_and_wrong_types() {
         let cases: &[&[u8]] = &[
-            br#"{"status":"open","status":"ready","display_name":"calm-otter","encrypted_size":0,"dropped_at":null,"first_picked_up_at":null,"expires_at":"2026-06-30T12:15:00Z"}"#,
-            br#"{"status":"open","display_name":"calm-otter","encrypted_size":0,"dropped_at":null,"first_picked_up_at":null,"expires_at":"2026-06-30T12:15:00Z","extra":1}"#,
-            br#"{"status":"open","display_name":"calm-otter","encrypted_size":true,"dropped_at":null,"first_picked_up_at":null,"expires_at":"2026-06-30T12:15:00Z"}"#,
+            br#"{"status":"open","status":"closed","display_name":"calm-otter","expires_at":"2026-06-30T12:15:00Z","pending_submissions":0,"pending_bytes":0,"max_pending_submissions":10,"max_pending_bytes":10240}"#,
+            br#"{"status":"open","display_name":"calm-otter","expires_at":"2026-06-30T12:15:00Z","pending_submissions":0,"pending_bytes":0,"max_pending_submissions":10,"max_pending_bytes":10240,"extra":1}"#,
+            br#"{"status":"open","display_name":"calm-otter","expires_at":"2026-06-30T12:15:00Z","pending_submissions":true,"pending_bytes":0,"max_pending_submissions":10,"max_pending_bytes":10240}"#,
         ];
         for case in cases {
             assert!(parse_json::<DropPointStatusResponse>(case, "status").is_err());
@@ -878,6 +1046,8 @@ mod tests {
             pickup_token: Zeroizing::new("pick_example".to_string()),
             expires_at: "2026-06-30T12:15:00Z".to_string(),
             max_bytes: 1024,
+            max_pending_submissions: 10,
+            max_pending_bytes: 10_240,
         };
         assert!(validate_create_response(&response, &base).is_ok());
     }
@@ -899,6 +1069,41 @@ mod tests {
             code: ApiErrorCode::PayloadUnavailable,
         };
         assert!(unavailable.is_retryable());
+        for code in [
+            ApiErrorCode::SubmissionNotFound,
+            ApiErrorCode::SubmissionAcknowledged,
+            ApiErrorCode::SubmissionFailed,
+        ] {
+            let child = DropPointClientError::Http {
+                status: reqwest::StatusCode::GONE,
+                code,
+            };
+            assert_eq!(child.terminal(), None, "child error closed the parent");
+        }
+        assert_eq!(
+            parse_api_error_code(
+                br#"{"error":{"code":"submission_failed","message":"child unavailable"}}"#
+            ),
+            ApiErrorCode::SubmissionFailed
+        );
+    }
+
+    #[test]
+    fn validates_multi_child_lists_and_rejects_duplicate_ids() {
+        let first = SubmissionSummary {
+            submission_id: "sub_AAAAAAAAAAAAAAAAAAAAAA".to_string(),
+            encrypted_size: 123,
+            dropped_at: "2026-06-30T12:03:12Z".to_string(),
+            first_picked_up_at: None,
+        };
+        let second = SubmissionSummary {
+            submission_id: format!("sub_{}", URL_SAFE_NO_PAD.encode([1u8; 16])),
+            encrypted_size: 456,
+            dropped_at: "2026-06-30T12:04:12Z".to_string(),
+            first_picked_up_at: Some("2026-06-30T12:05:12Z".to_string()),
+        };
+        assert!(validate_submissions(&[first.clone(), second]).is_ok());
+        assert!(validate_submissions(&[first.clone(), first]).is_err());
     }
 
     #[test]

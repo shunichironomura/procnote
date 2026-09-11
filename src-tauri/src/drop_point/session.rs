@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -14,7 +15,7 @@ use crate::drop_point::secure_fs::{
     atomic_write_private, ensure_private_directory, verify_private_regular_file,
 };
 
-const SESSION_STATE_VERSION: u32 = 1;
+const SESSION_STATE_VERSION: u32 = 2;
 const MAX_PROTOCOL_BYTES: u64 = 1 << 40;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -38,16 +39,16 @@ pub enum CompletionOutcome {
 #[serde(tag = "phase", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SessionPhase {
     Waiting,
-    BundleInstalled {
-        bundle: InstalledBundleState,
-    },
-    ClosePending {
-        bundle: InstalledBundleState,
-    },
-    Complete {
-        bundle: Option<InstalledBundleState>,
-        outcome: CompletionOutcome,
-    },
+    ClosePending,
+    Complete { outcome: CompletionOutcome },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SubmissionState {
+    pub bundle: InstalledBundleState,
+    pub recorded: bool,
+    pub acknowledged: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,6 +72,7 @@ pub struct ActiveDropPointSession {
     pub execution_dir: PathBuf,
     pub workspace_root: PathBuf,
     pub phase: SessionPhase,
+    pub submissions: BTreeMap<String, SubmissionState>,
 }
 
 pub struct NewDropPointSession {
@@ -114,6 +116,7 @@ impl ActiveDropPointSession {
             execution_dir: value.execution_dir,
             workspace_root: value.workspace_root,
             phase: SessionPhase::Waiting,
+            submissions: BTreeMap::new(),
         }
     }
 
@@ -140,41 +143,63 @@ impl ActiveDropPointSession {
     }
 
     #[must_use]
-    pub const fn installed_bundle(&self) -> Option<&InstalledBundleState> {
-        match &self.phase {
-            SessionPhase::BundleInstalled { bundle }
-            | SessionPhase::ClosePending { bundle }
-            | SessionPhase::Complete {
-                bundle: Some(bundle),
-                ..
-            } => Some(bundle),
-            SessionPhase::Waiting | SessionPhase::Complete { bundle: None, .. } => None,
-        }
+    pub fn pending_local_imports(&self) -> bool {
+        self.submissions
+            .values()
+            .any(|submission| !submission.acknowledged)
     }
 
     #[must_use]
-    pub fn with_bundle_installed(&self, bundle: InstalledBundleState) -> Self {
+    pub fn with_bundle_installed(
+        &self,
+        submission_id: String,
+        bundle: InstalledBundleState,
+    ) -> Self {
         let mut updated = self.clone();
-        updated.phase = SessionPhase::BundleInstalled { bundle };
+        updated
+            .submissions
+            .entry(submission_id)
+            .or_insert(SubmissionState {
+                bundle,
+                recorded: false,
+                acknowledged: false,
+            });
         updated
     }
 
-    pub fn with_close_pending(&self) -> Result<Self, String> {
-        let bundle = self.installed_bundle().cloned().ok_or_else(|| {
-            "cannot close DropPoint before durable bundle installation".to_string()
-        })?;
+    pub fn with_close_pending(&self) -> Self {
         let mut updated = self.clone();
-        updated.phase = SessionPhase::ClosePending { bundle };
+        updated.phase = SessionPhase::ClosePending;
+        updated
+    }
+
+    pub fn with_submission_recorded(&self, submission_id: &str) -> Result<Self, String> {
+        let mut updated = self.clone();
+        updated
+            .submissions
+            .get_mut(submission_id)
+            .ok_or_else(|| "unknown DropPoint submission".to_string())?
+            .recorded = true;
+        Ok(updated)
+    }
+
+    pub fn with_submission_acknowledged(&self, submission_id: &str) -> Result<Self, String> {
+        let mut updated = self.clone();
+        let submission = updated
+            .submissions
+            .get_mut(submission_id)
+            .ok_or_else(|| "unknown DropPoint submission".to_string())?;
+        if !submission.recorded {
+            return Err("cannot acknowledge an unrecorded DropPoint submission".to_string());
+        }
+        submission.acknowledged = true;
         Ok(updated)
     }
 
     #[must_use]
     pub fn with_complete(&self, outcome: CompletionOutcome) -> Self {
         let mut updated = self.clone();
-        updated.phase = SessionPhase::Complete {
-            bundle: self.installed_bundle().cloned(),
-            outcome,
-        };
+        updated.phase = SessionPhase::Complete { outcome };
         updated.pickup_token = None;
         updated.recipient_private_key = None;
         updated.drop_link = None;
@@ -209,9 +234,7 @@ impl ActiveDropPointSession {
         }
 
         match &self.phase {
-            SessionPhase::Waiting
-            | SessionPhase::BundleInstalled { .. }
-            | SessionPhase::ClosePending { .. } => {
+            SessionPhase::Waiting | SessionPhase::ClosePending => {
                 let pickup = self.pickup_token.as_deref().ok_or_else(|| {
                     "resumable DropPoint private state is missing its pickup capability".to_string()
                 })?;
@@ -244,12 +267,17 @@ impl ActiveDropPointSession {
             }
         }
 
-        if let Some(bundle) = self.installed_bundle() {
+        for (submission_id, submission) in &self.submissions {
+            validate_prefixed_value(submission_id, "sub_")?;
+            if submission.acknowledged && !submission.recorded {
+                return Err("acknowledged DropPoint submission is not recorded".to_string());
+            }
+            let bundle = &submission.bundle;
             validate_identity(&bundle.identity)?;
             let expected_path = self
                 .execution_dir
                 .join("attachments")
-                .join(format!("bundle-{}", self.drop_point_id));
+                .join(format!("bundle-{}-{submission_id}", self.drop_point_id));
             if !bundle.path.is_absolute() || bundle.path != expected_path {
                 return Err(
                     "installed DropPoint bundle path is outside its deterministic destination"
@@ -265,6 +293,7 @@ pub struct DropPointSessions {
     state_root: PathBuf,
     workspace_root: PathBuf,
     io_lock: Mutex<()>,
+    operation_lock: tokio::sync::Mutex<()>,
 }
 
 impl DropPointSessions {
@@ -277,7 +306,12 @@ impl DropPointSessions {
             state_root,
             workspace_root,
             io_lock: Mutex::new(()),
+            operation_lock: tokio::sync::Mutex::new(()),
         })
+    }
+
+    pub async fn lock_operation(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.operation_lock.lock().await
     }
 
     pub fn insert(&self, session: &ActiveDropPointSession) -> Result<(), String> {
@@ -397,40 +431,24 @@ fn merge_transition(
     if !same_session_identity(current, proposed) {
         return Err("refusing to replace different DropPoint private state".to_string());
     }
-    let current_bundle = current.installed_bundle().cloned();
-    let proposed_bundle = proposed.installed_bundle().cloned();
-    if current_bundle.is_some() && proposed_bundle.is_some() && current_bundle != proposed_bundle {
-        return Err("DropPoint private-state bundle identity conflict".to_string());
-    }
-
     if matches!(current.phase, SessionPhase::Complete { .. }) {
-        return match (current_bundle, proposed_bundle) {
-            (None, Some(bundle)) => {
-                let mut merged = current.clone();
-                if let SessionPhase::Complete {
-                    bundle: current_bundle,
-                    ..
-                } = &mut merged.phase
-                {
-                    *current_bundle = Some(bundle);
-                }
-                Ok(Some(merged))
-            }
-            _ => Ok(None),
-        };
+        return Ok(None);
     }
 
     let mut merged = proposed.clone();
-    if let (
-        Some(bundle),
-        SessionPhase::Complete {
-            bundle: proposed_bundle,
-            ..
-        },
-    ) = (current_bundle, &mut merged.phase)
-        && proposed_bundle.is_none()
-    {
-        *proposed_bundle = Some(bundle);
+    for (id, old) in &current.submissions {
+        match merged.submissions.get_mut(id) {
+            Some(new) if new.bundle != old.bundle => {
+                return Err("DropPoint private-state bundle identity conflict".to_string());
+            }
+            Some(new) => {
+                new.recorded |= old.recorded;
+                new.acknowledged |= old.acknowledged;
+            }
+            None => {
+                merged.submissions.insert(id.clone(), old.clone());
+            }
+        }
     }
     if phase_rank(&merged.phase) < phase_rank(&current.phase) {
         Ok(None)
@@ -458,9 +476,8 @@ fn same_session_identity(left: &ActiveDropPointSession, right: &ActiveDropPointS
 const fn phase_rank(phase: &SessionPhase) -> u8 {
     match phase {
         SessionPhase::Waiting => 0,
-        SessionPhase::BundleInstalled { .. } => 1,
-        SessionPhase::ClosePending { .. } => 2,
-        SessionPhase::Complete { .. } => 3,
+        SessionPhase::ClosePending => 1,
+        SessionPhase::Complete { .. } => 2,
     }
 }
 
@@ -649,7 +666,7 @@ mod tests {
     }
 
     #[test]
-    fn close_pending_is_resumable_without_reinstalling() {
+    fn explicit_close_intent_survives_restart() {
         let temporary = tempfile::tempdir().unwrap();
         let workspace = temporary.path().join("workspace");
         std::fs::create_dir(&workspace).unwrap();
@@ -659,22 +676,27 @@ mod tests {
         sessions.insert(&original).unwrap();
         let bundle = InstalledBundleState {
             identity: "a".repeat(64),
-            path: original.execution_dir.join("attachments/bundle-dp_example"),
+            path: original
+                .execution_dir
+                .join("attachments/bundle-dp_example-sub_first"),
         };
         let close_pending = original
-            .with_bundle_installed(bundle.clone())
-            .with_close_pending()
-            .unwrap();
+            .with_bundle_installed("sub_first".to_string(), bundle.clone())
+            .with_close_pending();
         sessions.persist(&close_pending).unwrap();
         drop(sessions);
 
         let restarted = DropPointSessions::new(state_root, &workspace).unwrap();
         let loaded = restarted.get(&original.session_id).unwrap();
-        assert!(matches!(
-            loaded.phase,
-            SessionPhase::ClosePending { bundle: ref loaded_bundle } if *loaded_bundle == bundle
-        ));
+        assert!(matches!(loaded.phase, SessionPhase::ClosePending));
+        assert_eq!(loaded.submissions["sub_first"].bundle, bundle);
         assert!(loaded.recipient_private_key().is_ok());
+
+        restarted.persist(&original).unwrap();
+        assert!(matches!(
+            restarted.get(&original.session_id).unwrap().phase,
+            SessionPhase::ClosePending
+        ));
     }
 
     #[test]
@@ -716,19 +738,18 @@ mod tests {
         sessions.insert(&waiting).unwrap();
         let bundle = InstalledBundleState {
             identity: "b".repeat(64),
-            path: waiting.execution_dir.join("attachments/bundle-dp_example"),
+            path: waiting
+                .execution_dir
+                .join("attachments/bundle-dp_example-sub_first"),
         };
         sessions
-            .persist(&waiting.with_bundle_installed(bundle.clone()))
+            .persist(&waiting.with_bundle_installed("sub_first".to_string(), bundle.clone()))
             .unwrap();
 
         sessions.persist(&waiting).unwrap();
         assert_eq!(
-            sessions
-                .get(&waiting.session_id)
-                .unwrap()
-                .installed_bundle(),
-            Some(&bundle)
+            sessions.get(&waiting.session_id).unwrap().submissions["sub_first"].bundle,
+            bundle
         );
 
         sessions
@@ -736,7 +757,7 @@ mod tests {
             .unwrap();
         let terminal = sessions.get(&waiting.session_id).unwrap();
         assert!(matches!(terminal.phase, SessionPhase::Complete { .. }));
-        assert_eq!(terminal.installed_bundle(), Some(&bundle));
+        assert_eq!(terminal.submissions["sub_first"].bundle, bundle);
         assert!(terminal.recipient_private_key().is_err());
     }
 
